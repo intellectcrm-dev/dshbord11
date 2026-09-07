@@ -1,0 +1,42 @@
+:root {
+  --bg: #f7f5f0;
+  --surface: #fff;
+  --ink: #1e2019;
+  --muted: #6b6b63;
+  --line: #d8d5c9;
+  --line-soft: #ece9dd;
+  --accent: #2f5d8a;
+  --danger: #b44b3d;
+  --font: "Assistant", "Rubik", system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+}
+
+input,
+textarea,
+select,
+button {
+  font-family: var(--font);
+}
+
+input:disabled,
+textarea:disabled,
+select:disabled {
+  background: #f4f2ec;
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}

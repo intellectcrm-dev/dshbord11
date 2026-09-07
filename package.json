@@ -1,0 +1,29 @@
+{
+  "name": "projects-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "לוח פרויקטים אישי עם ניהול משתמשים והרשאות",
+  "scripts": {
+    "setup": "npm install && npm --prefix client install",
+    "dev": "concurrently -n server,client -c blue,magenta \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "node --watch server/index.js",
+    "dev:client": "npm --prefix client run dev",
+    "build": "npm --prefix client run build",
+    "start": "node server/index.js",
+    "test:smoke": "node test/smoke.mjs"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
