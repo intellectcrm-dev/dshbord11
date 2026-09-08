@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { all, one, query, uid } from "../db.js";
-import { requireAuth, requireAdmin, hashPassword } from "../auth.js";
+import { requireAuth, requireAdmin, hashPassword, TEAM_ROLES } from "../auth.js";
 
 const router = Router();
 
@@ -9,7 +9,10 @@ router.use(requireAuth, requireAdmin);
 // אנשי צוות עם מפת ההרשאות שלהם: { [projectId]: 'view' | 'edit' }.
 router.get("/", async (req, res) => {
   const [users, perms] = await Promise.all([
-    all("SELECT id, name, role, created_at FROM users WHERE role = 'member' ORDER BY created_at"),
+    all(
+      `SELECT id, name, role, created_at FROM users
+        WHERE role <> 'admin' ORDER BY created_at`
+    ),
     all("SELECT user_id, project_id, level FROM project_permissions"),
   ]);
 
@@ -27,17 +30,21 @@ router.post("/", async (req, res) => {
   const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
   const password = typeof req.body?.password === "string" ? req.body.password : "";
 
+  const role = typeof req.body?.role === "string" ? req.body.role : "member";
+
   if (!name) return res.status(400).json({ error: "נדרש שם" });
   if (password.length < 6) return res.status(400).json({ error: "הסיסמה חייבת להכיל לפחות 6 תווים" });
+  if (!TEAM_ROLES.includes(role)) return res.status(400).json({ error: "תפקיד לא חוקי" });
 
   const id = uid();
-  await query("INSERT INTO users (id, name, password_hash, role) VALUES ($1, $2, $3, 'member')", [
+  await query("INSERT INTO users (id, name, password_hash, role) VALUES ($1, $2, $3, $4)", [
     id,
     name,
     hashPassword(password),
+    role,
   ]);
 
-  res.status(201).json({ id, name, role: "member", permissions: {} });
+  res.status(201).json({ id, name, role, permissions: {} });
 });
 
 router.delete("/:id", async (req, res) => {

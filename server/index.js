@@ -11,6 +11,7 @@ import projectRoutes from "./routes/projects.js";
 import userRoutes from "./routes/users.js";
 import permissionRoutes from "./routes/permissions.js";
 import adminRoutes from "./routes/admin.js";
+import aiRoutes from "./routes/ai.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 4000;
@@ -19,6 +20,10 @@ const isServerless = Boolean(process.env.VERCEL);
 
 const app = express();
 app.set("trust proxy", 1);
+// העלאת תמונה נשלחת כ-data URI בגוף הבקשה, ולכן נתיב הפרויקטים לבדו מקבל
+// תקרה גדולה. body-parser מדלג על גוף שכבר נקרא, כך שהתקרה הכללית שאחריו
+// עדיין חלה על כל שאר הנתיבים.
+app.use("/api/projects", express.json({ limit: "3mb" }));
 app.use(express.json({ limit: "100kb" }));
 app.use(cookieParser());
 
@@ -60,6 +65,7 @@ app.use("/api/projects", projectRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/permissions", permissionRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/ai", aiRoutes);
 
 app.use("/api", (req, res) => res.status(404).json({ error: "לא נמצא" }));
 

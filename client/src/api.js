@@ -30,10 +30,24 @@ export const api = {
   deleteProject: (id) => request("DELETE", `/projects/${id}`),
 
   listUsers: () => request("GET", "/users"),
-  createUser: (name, password) => request("POST", "/users", { name, password }),
+  createUser: (name, password, role) => request("POST", "/users", { name, password, role }),
   deleteUser: (id) => request("DELETE", `/users/${id}`),
 
   setPermission: (userId, projectId, level) =>
     request("PUT", "/permissions", { userId, projectId, level }),
   setAdminPassword: (newPassword) => request("PUT", "/admin/password", { newPassword }),
+
+  handoff: (id, stage, userId) => request("POST", `/projects/${id}/handoff`, { stage, userId }),
+
+  listNotes: (id) => request("GET", `/projects/${id}/notes`),
+  addNote: (id, note) => request("POST", `/projects/${id}/notes`, note),
+  updateNote: (id, noteId, patch) => request("PATCH", `/projects/${id}/notes/${noteId}`, patch),
+  deleteNote: (id, noteId) => request("DELETE", `/projects/${id}/notes/${noteId}`),
+
+  repoStatus: (id) => request("GET", `/projects/${id}/github`),
+  syncIssues: (id) => request("POST", `/projects/${id}/github/sync`),
+
+  generateCopy: (projectId) => request("POST", "/ai/project-copy", { projectId }),
+  scanCode: (projectId) => request("POST", "/ai/scan", { projectId }),
+  generateBrief: (projectId) => request("POST", "/ai/brief", { projectId }),
 };

@@ -1,15 +1,81 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Eye, Pencil, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, Eye, Link2, Loader2, Pencil, Plus, Sparkles, Trash2 } from "lucide-react";
 import { api } from "../api.js";
 import { C, STATUS, input, primaryButton } from "../theme.js";
+import ProjectDetails, { STAGES } from "./ProjectDetails.jsx";
 
 const SAVE_DELAY = 600;
 
+function Ring({ value, color }) {
+  const radius = 18;
+  const circumference = 2 * Math.PI * radius;
+  return (
+    <div style={{ position: "relative", width: "44px", height: "44px", flexShrink: 0 }}>
+      <svg viewBox="0 0 44 44" width="44" height="44" aria-hidden="true">
+        <circle cx="22" cy="22" r={radius} fill="none" stroke={C.line} strokeWidth="4" />
+        <circle
+          cx="22"
+          cy="22"
+          r={radius}
+          fill="none"
+          stroke={color}
+          strokeWidth="4"
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={circumference * (1 - Math.min(100, Math.max(0, value)) / 100)}
+          transform="rotate(-90 22 22)"
+        />
+      </svg>
+      <span
+        style={{
+          position: "absolute",
+          inset: 0,
+          display: "grid",
+          placeItems: "center",
+          fontSize: "11px",
+          fontWeight: 500,
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
+        {value}%
+      </span>
+    </div>
+  );
+}
+
+// כשאין תמונה מוצג ריבוע בצבע הסטטוס עם האות הראשונה — משאיר את הרשימה
+// אחידה במקום חור מלבני, ועדיין מבדיל בין פרויקטים.
+function Thumb({ project, color }) {
+  const shared = { width: "58px", height: "58px", borderRadius: C.radius, flexShrink: 0, objectFit: "cover" };
+
+  if (project.image_url) return <img src={project.image_url} alt="" style={shared} />;
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        ...shared,
+        display: "grid",
+        placeItems: "center",
+        background: C.surfaceAlt,
+        border: `1px solid ${C.line}`,
+        color,
+        fontSize: "20px",
+        fontWeight: 700,
+      }}
+    >
+      {project.name.trim().charAt(0) || "?"}
+    </div>
+  );
+}
+
 export default function ProjectsView({ session, onError }) {
   const [projects, setProjects] = useState([]);
+  const [team, setTeam] = useState([]);
   const [loading, setLoading] = useState(true);
   const [newName, setNewName] = useState("");
   const [editingId, setEditingId] = useState(null);
+  const [openId, setOpenId] = useState(null);
+  const [busyId, setBusyId] = useState(null);
   const pending = useRef(new Map());
 
   const isAdmin = session.role === "admin";
@@ -28,8 +94,18 @@ export default function ProjectsView({ session, onError }) {
     load();
   }, [load]);
 
+  // רשימת הצוות דרושה רק כדי לבחור למי מעבירים, ולכן היא נטענת למנהל בלבד.
+  useEffect(() => {
+    if (!isAdmin) return;
+    api.listUsers().then(setTeam).catch(onError);
+  }, [isAdmin, onError]);
+
   const patchLocal = useCallback((id, patch) => {
     setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+  }, []);
+
+  const replaceProject = useCallback((next) => {
+    setProjects((prev) => prev.map((p) => (p.id === next.id ? { ...p, ...next } : p)));
   }, []);
 
   // Typing a description or nudging a progress number should not fire one
@@ -79,6 +155,7 @@ export default function ProjectsView({ session, onError }) {
       const created = await api.createProject(name);
       setProjects((prev) => [...prev, created]);
       setNewName("");
+      setOpenId(created.id);
     } catch (err) {
       onError(err);
     }
@@ -91,6 +168,19 @@ export default function ProjectsView({ session, onError }) {
       setProjects((prev) => prev.filter((p) => p.id !== project.id));
     } catch (err) {
       onError(err);
+    }
+  }
+
+  async function writeWithAi(project) {
+    setBusyId(project.id);
+    try {
+      const { description, audience } = await api.generateCopy(project.id);
+      queueSave(project.id, { description, audience }, { immediate: true });
+      setOpenId(project.id);
+    } catch (err) {
+      onError(err);
+    } finally {
+      setBusyId(null);
     }
   }
 
@@ -114,75 +204,182 @@ export default function ProjectsView({ session, onError }) {
       )}
 
       {projects.length === 0 ? (
-        <div style={{ padding: "40px 20px", textAlign: "center", color: C.muted, border: `1px dashed ${C.line}` }}>
+        <div
+          style={{
+            padding: "40px 20px",
+            textAlign: "center",
+            color: C.muted,
+            border: `1px dashed ${C.line}`,
+            borderRadius: C.radius,
+          }}
+        >
           {isAdmin
             ? "אין עדיין פרויקטים. הוסף את הראשון למעלה."
-            : "אין לך עדיין גישה לאף פרויקט. פנה למנהל."}
+            : "לא הועבר אליך אף פרויקט עדיין."}
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "1px", background: C.line }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
           {projects.map((p) => {
             const editable = p.level === "admin" || p.level === "edit";
             const st = STATUS[p.status] ?? STATUS.active;
+            const stage = STAGES[p.stage] ?? STAGES.draft;
+            const open = openId === p.id;
+            const busy = busyId === p.id;
+
             return (
               <article
                 key={p.id}
                 style={{
                   background: C.surface,
-                  padding: "16px",
-                  borderRight: `4px solid ${st.color}`,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "8px",
+                  border: `1px solid ${C.line}`,
+                  borderRadius: C.radius,
+                  overflow: "hidden",
                 }}
               >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "10px" }}>
-                  {editingId === p.id ? (
-                    <input
-                      value={p.name}
-                      onChange={(e) => patchLocal(p.id, { name: e.target.value })}
-                      onBlur={() => {
-                        setEditingId(null);
-                        queueSave(p.id, { name: p.name.trim() || "ללא שם" }, { immediate: true });
-                      }}
-                      onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-                      autoFocus
-                      style={{ fontSize: "16px", fontWeight: 600, border: `1px solid ${C.line}`, padding: "4px 8px", flex: 1 }}
-                    />
-                  ) : (
-                    <h2
-                      onClick={() => isAdmin && setEditingId(p.id)}
-                      title={isAdmin ? "לחץ לשינוי שם" : undefined}
-                      style={{ fontSize: "16px", fontWeight: 600, margin: 0, cursor: isAdmin ? "text" : "default" }}
-                    >
-                      {p.name}
-                    </h2>
-                  )}
+                <div style={{ display: "flex", gap: "14px", alignItems: "center", padding: "14px 16px" }}>
+                  <Thumb project={p} color={st.color} />
 
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                      {editingId === p.id ? (
+                        <input
+                          value={p.name}
+                          onChange={(e) => patchLocal(p.id, { name: e.target.value })}
+                          onBlur={() => {
+                            setEditingId(null);
+                            queueSave(p.id, { name: p.name.trim() || "ללא שם" }, { immediate: true });
+                          }}
+                          onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+                          autoFocus
+                          style={{ ...input, fontSize: "16px", fontWeight: 700, flex: 1 }}
+                        />
+                      ) : (
+                        <h2
+                          onClick={() => isAdmin && setEditingId(p.id)}
+                          title={isAdmin ? "לחץ לשינוי שם" : undefined}
+                          style={{ fontSize: "16px", fontWeight: 700, margin: 0, cursor: isAdmin ? "text" : "default" }}
+                        >
+                          {p.name}
+                        </h2>
+                      )}
+
+                      <span
+                        style={{
+                          fontSize: "10.5px",
+                          padding: "2px 8px",
+                          borderRadius: "99px",
+                          color: stage.color,
+                          border: `1px solid ${stage.color}55`,
+                        }}
+                      >
+                        {stage.label}
+                      </span>
+
+                      {p.open_notes > 0 && (
+                        <span style={{ fontSize: "10.5px", padding: "2px 8px", borderRadius: "99px", color: C.danger, border: `1px solid ${C.danger}55` }}>
+                          {p.open_notes} לתיקון
+                        </span>
+                      )}
+                    </div>
+
+                    {p.description && (
+                      <p
+                        style={{
+                          fontSize: "12.5px",
+                          color: C.muted,
+                          margin: "3px 0 6px",
+                          lineHeight: 1.5,
+                          display: "-webkit-box",
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: "vertical",
+                          overflow: "hidden",
+                        }}
+                      >
+                        {p.description}
+                      </p>
+                    )}
+
+                    <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "5px 12px", fontSize: "11.5px" }}>
+                      {editable ? (
+                        <select
+                          value={p.status}
+                          onChange={(e) => queueSave(p.id, { status: e.target.value }, { immediate: true })}
+                          aria-label="סטטוס"
+                          style={{ ...input, padding: "3px 7px", fontSize: "11.5px", color: st.color, borderRadius: "6px" }}
+                        >
+                          {Object.entries(STATUS).map(([key, v]) => (
+                            <option key={key} value={key} style={{ color: C.ink, background: C.surfaceAlt }}>
+                              {v.label}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", color: C.muted }}>
+                          <i style={{ width: "7px", height: "7px", borderRadius: "50%", background: st.color, display: "inline-block" }} />
+                          {st.label}
+                        </span>
+                      )}
+
+                      {p.link && (
+                        <a
+                          href={p.link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ color: C.accent, display: "inline-flex", alignItems: "center", gap: "4px", textDecoration: "none" }}
+                        >
+                          <Link2 size={12} />
+                          {p.link.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "")}
+                        </a>
+                      )}
+
+                      {p.audience && (
+                        <span style={{ color: C.muted }}>
+                          קהל יעד: <b style={{ color: C.inkSoft, fontWeight: 500 }}>{p.audience}</b>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px", flexShrink: 0 }}>
                     {!editable && <Eye size={14} color={C.muted} aria-label="צפייה בלבד" />}
                     {editable && !isAdmin && <Pencil size={14} color={C.muted} aria-label="ניתן לערוך" />}
-                    {editable ? (
-                      <select
-                        value={p.status}
-                        onChange={(e) => queueSave(p.id, { status: e.target.value }, { immediate: true })}
-                        aria-label="סטטוס"
-                        style={{ fontSize: "12px", border: `1px solid ${C.line}`, padding: "4px 8px", background: "#fff", color: st.color }}
+
+                    <Ring value={p.progress} color={st.color} />
+
+                    {editable && (
+                      <button
+                        onClick={() => writeWithAi(p)}
+                        disabled={busy}
+                        title="קלוד יכתוב תיאור וקהל יעד לפי שם הפרויקט"
+                        style={{ ...primaryButton, padding: "6px 11px", fontSize: "12.5px" }}
                       >
-                        {Object.entries(STATUS).map(([key, v]) => (
-                          <option key={key} value={key}>
-                            {v.label}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span style={{ fontSize: "12px", color: st.color, fontWeight: 600 }}>{st.label}</span>
+                        {busy ? <Loader2 size={14} /> : <Sparkles size={14} />} AI
+                      </button>
                     )}
+
+                    <button
+                      onClick={() => setOpenId(open ? null : p.id)}
+                      aria-label={open ? "סגור פרטים" : "פתח פרטים"}
+                      aria-expanded={open}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        color: C.muted,
+                        padding: "2px",
+                        display: "grid",
+                        placeItems: "center",
+                        transform: open ? "rotate(180deg)" : "none",
+                      }}
+                    >
+                      <ChevronDown size={18} />
+                    </button>
+
                     {isAdmin && (
                       <button
                         onClick={() => removeProject(p)}
                         aria-label="מחק פרויקט"
-                        style={{ background: "none", border: "none", cursor: "pointer", color: "#b5b3a8", padding: "2px" }}
+                        style={{ background: "none", border: "none", cursor: "pointer", color: C.muted, padding: "2px" }}
                       >
                         <Trash2 size={15} />
                       </button>
@@ -190,47 +387,17 @@ export default function ProjectsView({ session, onError }) {
                   </div>
                 </div>
 
-                {editable ? (
-                  <textarea
-                    value={p.description}
-                    onChange={(e) => queueSave(p.id, { description: e.target.value })}
-                    placeholder="תיאור, הערות, סטטוס..."
-                    rows={2}
-                    style={{
-                      width: "100%",
-                      border: `1px solid ${C.lineSoft}`,
-                      padding: "8px",
-                      fontSize: "13px",
-                      resize: "vertical",
-                      color: "#3d3d35",
-                    }}
+                {open && (
+                  <ProjectDetails
+                    project={p}
+                    isAdmin={isAdmin}
+                    team={team}
+                    queueSave={queueSave}
+                    patchLocal={patchLocal}
+                    onError={onError}
+                    onReplace={replaceProject}
                   />
-                ) : (
-                  p.description && <p style={{ fontSize: "13px", color: C.muted, margin: 0 }}>{p.description}</p>
                 )}
-
-                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <div style={{ flex: 1, height: "5px", background: C.lineSoft }}>
-                    <div style={{ width: `${p.progress}%`, height: "100%", background: st.color }} />
-                  </div>
-                  {editable ? (
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      value={p.progress}
-                      aria-label="אחוז התקדמות"
-                      onChange={(e) =>
-                        queueSave(p.id, {
-                          progress: Math.max(0, Math.min(100, Math.round(Number(e.target.value) || 0))),
-                        })
-                      }
-                      style={{ width: "56px", fontSize: "12px", border: `1px solid ${C.line}`, padding: "3px", textAlign: "center" }}
-                    />
-                  ) : (
-                    <span style={{ fontSize: "12px", color: C.muted, width: "34px" }}>{p.progress}%</span>
-                  )}
-                </div>
               </article>
             );
           })}

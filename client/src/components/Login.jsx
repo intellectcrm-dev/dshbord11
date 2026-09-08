@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { ChevronLeft, FolderKanban, Lock, Shield, Users } from "lucide-react";
 import { api } from "../api.js";
-import { C } from "../theme.js";
+import { C, input, primaryButton } from "../theme.js";
 
 export default function Login({ onLoggedIn, notice }) {
   const [mode, setMode] = useState("choose"); // choose | admin | member
@@ -146,7 +146,7 @@ export default function Login({ onLoggedIn, notice }) {
                   value={userId}
                   onChange={(e) => setUserId(e.target.value)}
                   required
-                  style={{ padding: "12px", border: `1px solid ${C.line}`, background: "#fff", fontSize: "15px" }}
+                  style={{ ...input, padding: "12px", fontSize: "15px" }}
                 >
                   <option value="">בחר שם</option>
                   {members.map((m) => (
@@ -177,7 +177,8 @@ export default function Login({ onLoggedIn, notice }) {
                   width: "100%",
                   padding: "12px 40px 12px 12px",
                   border: `1px solid ${C.line}`,
-                  background: "#fff",
+                  background: C.surfaceAlt,
+                  color: C.ink,
                   fontSize: "15px",
                 }}
               />
@@ -188,7 +189,7 @@ export default function Login({ onLoggedIn, notice }) {
             <button
               type="submit"
               disabled={busy}
-              style={{ padding: "12px", background: C.accent, color: "#fff", border: "none", cursor: "pointer", fontSize: "15px" }}
+              style={{ ...primaryButton, padding: "12px", fontSize: "15px", justifyContent: "center" }}
             >
               {busy ? "מתחבר..." : "כניסה"}
             </button>

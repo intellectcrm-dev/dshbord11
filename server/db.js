@@ -98,6 +98,55 @@ const SCHEMA_SQL = `
     window_start TIMESTAMPTZ NOT NULL DEFAULT now(),
     locked_until TIMESTAMPTZ
   );
+
+  -- שדות שנוספו אחרי הגרסה הראשונה. ‎CREATE TABLE IF NOT EXISTS לא נוגע
+  -- בטבלה קיימת, ולכן ההרחבות נכתבות בנפרד ורצות שוב ושוב בלי נזק.
+  ALTER TABLE projects ADD COLUMN IF NOT EXISTS link     TEXT NOT NULL DEFAULT '';
+  ALTER TABLE projects ADD COLUMN IF NOT EXISTS image    TEXT NOT NULL DEFAULT '';
+  ALTER TABLE projects ADD COLUMN IF NOT EXISTS audience TEXT NOT NULL DEFAULT '';
+
+  -- קו הייצור: הפרויקט מתחיל אצל המנהל ועובר הלאה. מה שנשאר draft גלוי
+  -- למנהל בלבד, ולכן שלב הוא נתון של הפרויקט ולא הרשאה של משתמש.
+  ALTER TABLE projects ADD COLUMN IF NOT EXISTS repo_url    TEXT NOT NULL DEFAULT '';
+  ALTER TABLE projects ADD COLUMN IF NOT EXISTS brief       TEXT NOT NULL DEFAULT '';
+  ALTER TABLE projects ADD COLUMN IF NOT EXISTS stage       TEXT NOT NULL DEFAULT 'draft';
+  ALTER TABLE projects ADD COLUMN IF NOT EXISTS assigned_to TEXT;
+  ALTER TABLE projects ADD COLUMN IF NOT EXISTS handed_at   TIMESTAMPTZ;
+
+  ALTER TABLE projects DROP CONSTRAINT IF EXISTS projects_stage_check;
+  ALTER TABLE projects ADD  CONSTRAINT projects_stage_check
+    CHECK (stage IN ('draft','marketing','dev','done'));
+
+  ALTER TABLE projects DROP CONSTRAINT IF EXISTS projects_assigned_to_fkey;
+  ALTER TABLE projects ADD  CONSTRAINT projects_assigned_to_fkey
+    FOREIGN KEY (assigned_to) REFERENCES users(id) ON DELETE SET NULL;
+
+  -- התפקידים החדשים. האילוץ נכתב מחדש כי הוא נוצר עם רשימה קצרה יותר.
+  ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
+  ALTER TABLE users ADD  CONSTRAINT users_role_check
+    CHECK (role IN ('admin','member','marketing','developer'));
+
+  -- הערה, באג או משימה. שלושת מקורות הסריקה נכנסים לאותה טבלה: מה שנוסף
+  -- ביד, מה שנמשך מ-GitHub, ומה שקלוד מצא בקוד.
+  CREATE TABLE IF NOT EXISTS project_notes (
+    id         TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    source     TEXT NOT NULL CHECK (source IN ('manual','github','ai')),
+    title      TEXT NOT NULL,
+    body       TEXT NOT NULL DEFAULT '',
+    url        TEXT NOT NULL DEFAULT '',
+    severity   TEXT NOT NULL DEFAULT 'info' CHECK (severity IN ('info','warning','critical')),
+    done       BOOLEAN NOT NULL DEFAULT false,
+    external_id TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_notes_project ON project_notes(project_id);
+
+  -- סנכרון חוזר מ-GitHub לא אמור לשכפל את אותו issue.
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_notes_external
+    ON project_notes(project_id, source, external_id)
+    WHERE external_id <> '';
 `;
 
 async function seedAdmin(client) {
