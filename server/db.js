@@ -1,24 +1,51 @@
-import { DatabaseSync } from "node:sqlite";
+import pg from "pg";
 import { randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
 import bcrypt from "bcryptjs";
 
-const DB_FILE = resolve(process.env.DB_FILE || "data/dashboard.db");
-mkdirSync(dirname(DB_FILE), { recursive: true });
+const { Pool } = pg;
 
-export const db = new DatabaseSync(DB_FILE);
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+  throw new Error(
+    "DATABASE_URL חסר. העתק את .env.example ל-.env ומלא את מחרוזת החיבור ל-Postgres (ראה README)."
+  );
+}
 
-db.exec("PRAGMA journal_mode = WAL");
-db.exec("PRAGMA foreign_keys = ON");
+// כל העבודה מתבצעת בתוך סכימה אחת. ברירת המחדל public, והבדיקות מקבלות
+// סכימה זמנית משלהן כדי לא לגעת בנתונים אמיתיים.
+export const SCHEMA = process.env.DB_SCHEMA || "public";
+const quotedSchema = `"${SCHEMA.replace(/"/g, '""')}"`;
 
-db.exec(`
+// pool קטן בכוונה: על Vercel כל instance מחזיק pool משלו, ומול Neon עדיף
+// להתחבר דרך ה-endpoint המאגד (pooled) עם מעט חיבורים לכל instance.
+export const pool = new Pool({
+  connectionString,
+  max: Number(process.env.PG_POOL_MAX) || 3,
+  idleTimeoutMillis: 10_000,
+  connectionTimeoutMillis: 15_000,
+});
+
+pool.on("connect", (client) => {
+  client.query(`SET search_path TO ${quotedSchema}`).catch(() => {
+    /* מטופל בשאילתה הבאה שתיכשל בקול */
+  });
+});
+
+pool.on("error", (err) => {
+  console.error("שגיאת pool של Postgres:", err.message);
+});
+
+export const query = (text, params) => pool.query(text, params);
+export const one = async (text, params) => (await pool.query(text, params)).rows[0] ?? null;
+export const all = async (text, params) => (await pool.query(text, params)).rows;
+
+const SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS users (
     id            TEXT PRIMARY KEY,
     name          TEXT NOT NULL,
     password_hash TEXT NOT NULL,
     role          TEXT NOT NULL CHECK (role IN ('admin','member')),
-    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
   );
 
   CREATE TABLE IF NOT EXISTS projects (
@@ -28,8 +55,8 @@ db.exec(`
     status      TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','paused','done','blocked')),
     progress    INTEGER NOT NULL DEFAULT 0 CHECK (progress BETWEEN 0 AND 100),
     created_by  TEXT REFERENCES users(id) ON DELETE SET NULL,
-    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
   );
 
   CREATE TABLE IF NOT EXISTS project_permissions (
@@ -42,22 +69,65 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_perm_user ON project_permissions(user_id);
   CREATE INDEX IF NOT EXISTS idx_perm_project ON project_permissions(project_id);
-`);
 
-// Seed the first admin on an empty database. The password comes from the
-// environment when provided, otherwise a default that the README tells the
-// user to change on first login.
-export function seedAdmin() {
-  const existing = db.prepare("SELECT id FROM users WHERE role = 'admin' LIMIT 1").get();
-  if (existing) return null;
+  -- מוני ניסיונות כניסה. בשרת אחד אפשר היה להחזיק אותם בזיכרון, אבל על
+  -- serverless כל בקשה עלולה לנחות ב-instance אחר, ואז נעילה בזיכרון חסרת ערך.
+  CREATE TABLE IF NOT EXISTS login_attempts (
+    key          TEXT PRIMARY KEY,
+    attempts     INTEGER NOT NULL DEFAULT 0,
+    window_start TIMESTAMPTZ NOT NULL DEFAULT now(),
+    locked_until TIMESTAMPTZ
+  );
+`;
+
+async function seedAdmin(client) {
+  const existing = await client.query("SELECT id FROM users WHERE role = 'admin' LIMIT 1");
+  if (existing.rowCount > 0) return null;
 
   const password = process.env.ADMIN_PASSWORD || "admin1234";
   const id = randomUUID();
-  db.prepare(
-    "INSERT INTO users (id, name, password_hash, role) VALUES (?, ?, ?, 'admin')"
-  ).run(id, process.env.ADMIN_NAME || "מנהל", bcrypt.hashSync(password, 12));
+  await client.query(
+    "INSERT INTO users (id, name, password_hash, role) VALUES ($1, $2, $3, 'admin')",
+    [id, process.env.ADMIN_NAME || "מנהל", bcrypt.hashSync(password, 12)]
+  );
 
-  return { id, password, fromEnv: Boolean(process.env.ADMIN_PASSWORD) };
+  return { id, usedDefaultPassword: !process.env.ADMIN_PASSWORD };
+}
+
+async function initialize() {
+  const client = await pool.connect();
+  try {
+    await client.query(`CREATE SCHEMA IF NOT EXISTS ${quotedSchema}`);
+    await client.query(`SET search_path TO ${quotedSchema}`);
+    await client.query("BEGIN");
+    // שני cold starts במקביל ירוצו כאן בזה אחר זה ולא יתנגשו על יצירת הטבלאות.
+    await client.query("SELECT pg_advisory_xact_lock(918273645)");
+    await client.query(SCHEMA_SQL);
+    const seeded = await seedAdmin(client);
+    await client.query("COMMIT");
+
+    if (seeded?.usedDefaultPassword) {
+      console.log("\n★ נוצר חשבון מנהל עם סיסמת ברירת המחדל admin1234.");
+      console.log("  החלף אותה במסך «צוות והרשאות» מיד אחרי הכניסה הראשונה.\n");
+    } else if (seeded) {
+      console.log("★ נוצר חשבון מנהל עם הסיסמה שהוגדרה ב-ADMIN_PASSWORD.");
+    }
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+// יצירת הסכימה וזריעת המנהל רצות פעם אחת לכל instance, ולא בכל בקשה.
+let readyPromise;
+export function ensureReady() {
+  readyPromise ??= initialize().catch((err) => {
+    readyPromise = undefined; // כישלון זמני (למשל DB שישן) לא ינעל את התהליך
+    throw err;
+  });
+  return readyPromise;
 }
 
 export { randomUUID as uid };

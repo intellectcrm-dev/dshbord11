@@ -1,55 +1,33 @@
 // בדיקת עשן מקצה לקצה מול ה-API האמיתי.
-// מרימה שרת על פורט נפרד עם בסיס נתונים זמני, בודקת, ומנקה אחריה.
+//
+// אם מוגדר DATABASE_URL — הבדיקה יוצרת סכימה זמנית משלה באותו בסיס נתונים
+// ומוחקת אותה בסוף, כך שנתונים אמיתיים לא נוגעים בה.
+// אם לא — היא מרימה Postgres בזיכרון (PGlite) ומריצה מולו, בלי שום תלות חיצונית.
+import "dotenv/config";
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 
 const PORT = Number(process.env.TEST_PORT) || 4100;
+const PG_PORT = Number(process.env.TEST_PG_PORT) || 5439;
 const BASE = `http://127.0.0.1:${PORT}/api`;
 const ADMIN_PASSWORD = "admin1234";
 
-const tmp = mkdtempSync(join(tmpdir(), "pd-smoke-"));
-const server = spawn(process.execPath, ["server/index.js"], {
-  env: {
-    ...process.env,
-    NODE_ENV: "test",
-    PORT: String(PORT),
-    DB_FILE: join(tmp, "test.db"),
-    JWT_SECRET: "smoke-test-secret",
-    ADMIN_PASSWORD,
-  },
-  stdio: ["ignore", "pipe", "pipe"],
-});
+let passed = 0;
+let failed = 0;
+let server;
+let pglite;
+let pgliteServer;
 
-let serverOutput = "";
-server.stdout.on("data", (d) => (serverOutput += d));
-server.stderr.on("data", (d) => (serverOutput += d));
-
-function cleanup() {
-  server.kill();
-  try {
-    rmSync(tmp, { recursive: true, force: true });
-  } catch {
-    /* the OS will reclaim it */
+function check(name, cond, detail = "") {
+  if (cond) {
+    passed++;
+    console.log(`  ok   ${name}`);
+  } else {
+    failed++;
+    console.log(`  FAIL ${name} ${detail}`);
   }
 }
-
-async function waitForServer() {
-  for (let i = 0; i < 60; i++) {
-    if (server.exitCode !== null) {
-      throw new Error(`השרת נפל בעלייה:\n${serverOutput}`);
-    }
-    try {
-      const res = await fetch(`${BASE}/health`);
-      if (res.ok) return;
-    } catch {
-      /* not listening yet */
-    }
-    await new Promise((r) => setTimeout(r, 250));
-  }
-  throw new Error(`השרת לא עלה תוך 15 שניות:\n${serverOutput}`);
-}
+const dump = (r) => JSON.stringify(r);
 
 // כל "דפדפן" בבדיקה הוא צנצנת עוגיות משלו.
 function jar() {
@@ -80,21 +58,86 @@ function jar() {
   };
 }
 
-let passed = 0;
-let failed = 0;
-function check(name, cond, detail = "") {
-  if (cond) {
-    passed++;
-    console.log(`  ok   ${name}`);
-  } else {
-    failed++;
-    console.log(`  FAIL ${name} ${detail}`);
+async function startDatabase() {
+  if (process.env.DATABASE_URL) {
+    const schema = `smoke_${randomUUID().slice(0, 8)}`;
+    console.log(`בסיס נתונים: DATABASE_URL, סכימה זמנית ${schema}`);
+    return { databaseUrl: process.env.DATABASE_URL, schema, poolMax: "3", external: true };
   }
-}
-const dump = (r) => JSON.stringify(r);
 
+  const { PGlite } = await import("@electric-sql/pglite");
+  const { PGLiteSocketServer } = await import("@electric-sql/pglite-socket");
+  pglite = await PGlite.create();
+  pgliteServer = new PGLiteSocketServer({ db: pglite, port: PG_PORT, host: "127.0.0.1" });
+  await pgliteServer.start();
+  console.log(`בסיס נתונים: PGlite בזיכרון על פורט ${PG_PORT}`);
+  // PGlite מקבל חיבור אחד בכל רגע, ולכן pool של חיבור בודד.
+  return {
+    databaseUrl: `postgres://postgres:postgres@127.0.0.1:${PG_PORT}/postgres`,
+    schema: "public",
+    poolMax: "1",
+    external: false,
+  };
+}
+
+async function stopDatabase(db) {
+  if (db?.external) {
+    const { default: pg } = await import("pg");
+    const client = new pg.Client({ connectionString: db.databaseUrl });
+    try {
+      await client.connect();
+      await client.query(`DROP SCHEMA IF EXISTS "${db.schema}" CASCADE`);
+      console.log(`הסכימה הזמנית ${db.schema} נמחקה`);
+    } catch (err) {
+      console.error(`מחיקת הסכימה הזמנית ${db.schema} נכשלה:`, err.message);
+    } finally {
+      await client.end().catch(() => {});
+    }
+    return;
+  }
+  await pgliteServer?.stop().catch(() => {});
+  await pglite?.close().catch(() => {});
+}
+
+function startServer(db) {
+  let output = "";
+  server = spawn(process.execPath, ["server/index.js"], {
+    env: {
+      ...process.env,
+      NODE_ENV: "test",
+      PORT: String(PORT),
+      DATABASE_URL: db.databaseUrl,
+      DB_SCHEMA: db.schema,
+      PG_POOL_MAX: db.poolMax,
+      JWT_SECRET: "smoke-test-secret",
+      ADMIN_PASSWORD,
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  server.stdout.on("data", (d) => (output += d));
+  server.stderr.on("data", (d) => (output += d));
+  return () => output;
+}
+
+async function waitForServer(readOutput) {
+  for (let i = 0; i < 120; i++) {
+    if (server.exitCode !== null) throw new Error(`השרת נפל בעלייה:\n${readOutput()}`);
+    try {
+      const res = await fetch(`${BASE}/health`);
+      if (res.ok) return;
+    } catch {
+      /* עדיין לא מאזין */
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  throw new Error(`השרת לא עלה תוך 30 שניות:\n${readOutput()}`);
+}
+
+let db;
 try {
-  await waitForServer();
+  db = await startDatabase();
+  const readOutput = startServer(db);
+  await waitForServer(readOutput);
 
   const admin = jar();
   const member = jar();
@@ -245,7 +288,9 @@ try {
   console.error(err.message);
   failed++;
 } finally {
-  cleanup();
+  server?.kill();
+  await new Promise((r) => setTimeout(r, 300));
+  await stopDatabase(db);
 }
 
 process.exit(failed ? 1 : 0);

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db } from "../db.js";
+import { all, one } from "../db.js";
 import {
   verifyPassword,
   issueSession,
@@ -12,8 +12,7 @@ import {
 
 const router = Router();
 
-// Deliberately identical for every failure mode, so the response never reveals
-// whether a name exists.
+// זהה לכל סוגי הכישלון, כדי שהתשובה לא תסגיר אם השם קיים.
 const BAD_CREDENTIALS = { error: "סיסמה שגויה" };
 
 function lockedResponse(res, retryInSec) {
@@ -22,55 +21,55 @@ function lockedResponse(res, retryInSec) {
   });
 }
 
-// The login screen needs names to choose from. Only id + name are exposed,
-// and only for members — never password hashes or the admin account.
-router.get("/members", (req, res) => {
-  const members = db
-    .prepare("SELECT id, name FROM users WHERE role = 'member' ORDER BY name")
-    .all();
+// מסך הכניסה צריך רשימת שמות לבחירה. נחשפים id ושם בלבד, ורק לאנשי צוות —
+// לא hash של סיסמה ולא חשבון המנהל.
+router.get("/members", async (req, res) => {
+  const members = await all("SELECT id, name FROM users WHERE role = 'member' ORDER BY name");
   res.json(members);
 });
 
-router.post("/admin-login", (req, res) => {
+router.post("/admin-login", async (req, res) => {
   const { password } = req.body ?? {};
   const key = `admin:${req.ip}`;
-  const guard = loginGuard(key);
+
+  const guard = await loginGuard(key);
   if (guard.blocked) return lockedResponse(res, guard.retryInSec);
 
   if (typeof password !== "string" || !password) {
-    registerFailure(key);
+    await registerFailure(key);
     return res.status(401).json(BAD_CREDENTIALS);
   }
 
-  const admins = db.prepare("SELECT * FROM users WHERE role = 'admin'").all();
+  const admins = await all("SELECT * FROM users WHERE role = 'admin'");
   const match = admins.find((a) => verifyPassword(password, a.password_hash));
   if (!match) {
-    registerFailure(key);
+    await registerFailure(key);
     return res.status(401).json(BAD_CREDENTIALS);
   }
 
-  clearFailures(key);
+  await clearFailures(key);
   issueSession(res, match);
   res.json({ user: { id: match.id, name: match.name, role: match.role } });
 });
 
-router.post("/member-login", (req, res) => {
+router.post("/member-login", async (req, res) => {
   const { userId, password } = req.body ?? {};
   const key = `member:${req.ip}:${userId ?? ""}`;
-  const guard = loginGuard(key);
+
+  const guard = await loginGuard(key);
   if (guard.blocked) return lockedResponse(res, guard.retryInSec);
 
   const user =
     typeof userId === "string"
-      ? db.prepare("SELECT * FROM users WHERE id = ? AND role = 'member'").get(userId)
+      ? await one("SELECT * FROM users WHERE id = $1 AND role = 'member'", [userId])
       : null;
 
   if (!user || typeof password !== "string" || !verifyPassword(password, user.password_hash)) {
-    registerFailure(key);
+    await registerFailure(key);
     return res.status(401).json(BAD_CREDENTIALS);
   }
 
-  clearFailures(key);
+  await clearFailures(key);
   issueSession(res, user);
   res.json({ user: { id: user.id, name: user.name, role: user.role } });
 });
