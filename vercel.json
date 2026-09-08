@@ -4,7 +4,18 @@
   "buildCommand": "npm run vercel-build",
   "outputDirectory": "client/dist",
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api" },
-    { "source": "/((?!api(?:/|$)).*)", "destination": "/index.html" }
-  ]
+    {
+      "source": "/api/(.*)",
+      "destination": "/api"
+    },
+    {
+      "source": "/((?!api(?:/|$)).*)",
+      "destination": "/index.html"
+    }
+  ],
+  "functions": {
+    "api/index.js": {
+      "maxDuration": 60
+    }
+  }
 }

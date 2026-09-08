@@ -24,7 +24,7 @@ function lockedResponse(res, retryInSec) {
 // מסך הכניסה צריך רשימת שמות לבחירה. נחשפים id ושם בלבד, ורק לאנשי צוות —
 // לא hash של סיסמה ולא חשבון המנהל.
 router.get("/members", async (req, res) => {
-  const members = await all("SELECT id, name FROM users WHERE role = 'member' ORDER BY name");
+  const members = await all("SELECT id, name FROM users WHERE role <> 'admin' ORDER BY name");
   res.json(members);
 });
 
@@ -61,7 +61,7 @@ router.post("/member-login", async (req, res) => {
 
   const user =
     typeof userId === "string"
-      ? await one("SELECT * FROM users WHERE id = $1 AND role = 'member'", [userId])
+      ? await one("SELECT * FROM users WHERE id = $1 AND role <> 'admin'", [userId])
       : null;
 
   if (!user || typeof password !== "string" || !verifyPassword(password, user.password_hash)) {

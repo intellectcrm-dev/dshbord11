@@ -9,6 +9,14 @@ const LEVELS = [
   { key: "edit", label: "עריכה" },
 ];
 
+// התפקידים שהמנהל יכול להקצות. «מנהל» לא מופיע כאן — חשבון מנהל נוצר
+// בזריעה הראשונה בלבד.
+export const ROLES = {
+  member: "איש צוות",
+  marketing: "שיווק",
+  developer: "מתכנת",
+};
+
 export default function TeamView({ onError }) {
   const [users, setUsers] = useState([]);
   const [projects, setProjects] = useState([]);
@@ -17,6 +25,7 @@ export default function TeamView({ onError }) {
 
   const [newName, setNewName] = useState("");
   const [newPass, setNewPass] = useState("");
+  const [newRole, setNewRole] = useState("member");
   const [adminPass, setAdminPass] = useState("");
   const [adminPass2, setAdminPass2] = useState("");
   const [passNotice, setPassNotice] = useState("");
@@ -39,10 +48,11 @@ export default function TeamView({ onError }) {
 
   async function addUser() {
     try {
-      const created = await api.createUser(newName.trim(), newPass);
+      const created = await api.createUser(newName.trim(), newPass, newRole);
       setUsers((prev) => [...prev, created]);
       setNewName("");
       setNewPass("");
+      setNewRole("member");
     } catch (err) {
       onError(err);
     }
@@ -143,6 +153,18 @@ export default function TeamView({ onError }) {
             autoComplete="new-password"
             style={{ ...input, flex: 1, minWidth: "120px" }}
           />
+          <select
+            value={newRole}
+            onChange={(e) => setNewRole(e.target.value)}
+            aria-label="תפקיד"
+            style={{ ...input, minWidth: "120px" }}
+          >
+            {Object.entries(ROLES).map(([key, label]) => (
+              <option key={key} value={key}>
+                {label}
+              </option>
+            ))}
+          </select>
           <button onClick={addUser} disabled={!newName.trim() || newPass.length < 6} style={primaryButton}>
             <Plus size={15} /> הוסף
           </button>
@@ -186,7 +208,12 @@ export default function TeamView({ onError }) {
                     >
                       {u.name.trim()[0] ?? "?"}
                     </div>
-                    <div style={{ fontSize: "14px", fontWeight: 600 }}>{u.name}</div>
+                    <div style={{ fontSize: "14px", fontWeight: 600 }}>
+                      {u.name}
+                      <span style={{ fontSize: "11px", color: C.muted, fontWeight: 400, marginInlineStart: "8px" }}>
+                        {ROLES[u.role] ?? u.role}
+                      </span>
+                    </div>
                     <div style={{ fontSize: "12px", color: C.muted }}>{count} פרויקטים</div>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>

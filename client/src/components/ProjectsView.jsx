@@ -1,40 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  ChevronDown,
-  Eye,
-  ImagePlus,
-  Link2,
-  Loader2,
-  Pencil,
-  Plus,
-  Sparkles,
-  Trash2,
-  X,
-} from "lucide-react";
+import { ChevronDown, Eye, Link2, Loader2, Pencil, Plus, Sparkles, Trash2 } from "lucide-react";
 import { api } from "../api.js";
-import { C, STATUS, ghostButton, input, primaryButton } from "../theme.js";
+import { C, STATUS, input, primaryButton } from "../theme.js";
+import ProjectDetails, { STAGES } from "./ProjectDetails.jsx";
 
 const SAVE_DELAY = 600;
-
-// גבול ההקטנה בצד הלקוח. תמונה גדולה יותר לא מוסיפה דבר בתצוגה של 58px
-// ורק מנפחת את בסיס הנתונים, ולכן היא מוקטנת לפני שהיא נשלחת בכלל.
-const MAX_IMAGE_EDGE = 1200;
-const IMAGE_QUALITY = 0.72;
-
-async function shrinkToDataUrl(file) {
-  const bitmap = await createImageBitmap(file);
-  const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(bitmap.width, bitmap.height));
-  const width = Math.round(bitmap.width * scale);
-  const height = Math.round(bitmap.height * scale);
-
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  canvas.getContext("2d").drawImage(bitmap, 0, 0, width, height);
-  bitmap.close?.();
-
-  return canvas.toDataURL("image/jpeg", IMAGE_QUALITY);
-}
 
 function Ring({ value, color }) {
   const radius = 18;
@@ -76,17 +46,9 @@ function Ring({ value, color }) {
 // כשאין תמונה מוצג ריבוע בצבע הסטטוס עם האות הראשונה — משאיר את הרשימה
 // אחידה במקום חור מלבני, ועדיין מבדיל בין פרויקטים.
 function Thumb({ project, color }) {
-  const shared = {
-    width: "58px",
-    height: "58px",
-    borderRadius: C.radius,
-    flexShrink: 0,
-    objectFit: "cover",
-  };
+  const shared = { width: "58px", height: "58px", borderRadius: C.radius, flexShrink: 0, objectFit: "cover" };
 
-  if (project.image_url) {
-    return <img src={project.image_url} alt="" style={shared} />;
-  }
+  if (project.image_url) return <img src={project.image_url} alt="" style={shared} />;
   return (
     <div
       aria-hidden="true"
@@ -106,24 +68,15 @@ function Thumb({ project, color }) {
   );
 }
 
-function Field({ label, children }) {
-  return (
-    <label style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
-      <span style={{ fontSize: "11.5px", color: C.muted, letterSpacing: ".02em" }}>{label}</span>
-      {children}
-    </label>
-  );
-}
-
 export default function ProjectsView({ session, onError }) {
   const [projects, setProjects] = useState([]);
+  const [team, setTeam] = useState([]);
   const [loading, setLoading] = useState(true);
   const [newName, setNewName] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [openId, setOpenId] = useState(null);
   const [busyId, setBusyId] = useState(null);
   const pending = useRef(new Map());
-  const fileInputs = useRef(new Map());
 
   const isAdmin = session.role === "admin";
 
@@ -141,8 +94,18 @@ export default function ProjectsView({ session, onError }) {
     load();
   }, [load]);
 
+  // רשימת הצוות דרושה רק כדי לבחור למי מעבירים, ולכן היא נטענת למנהל בלבד.
+  useEffect(() => {
+    if (!isAdmin) return;
+    api.listUsers().then(setTeam).catch(onError);
+  }, [isAdmin, onError]);
+
   const patchLocal = useCallback((id, patch) => {
     setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+  }, []);
+
+  const replaceProject = useCallback((next) => {
+    setProjects((prev) => prev.map((p) => (p.id === next.id ? { ...p, ...next } : p)));
   }, []);
 
   // Typing a description or nudging a progress number should not fire one
@@ -208,22 +171,6 @@ export default function ProjectsView({ session, onError }) {
     }
   }
 
-  async function pickImage(project, file) {
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      onError(new Error("אפשר להעלות קובץ תמונה בלבד."));
-      return;
-    }
-    setBusyId(project.id);
-    try {
-      queueSave(project.id, { image: await shrinkToDataUrl(file) }, { immediate: true });
-    } catch {
-      onError(new Error("לא הצלחנו לקרוא את קובץ התמונה. נסה קובץ אחר."));
-    } finally {
-      setBusyId(null);
-    }
-  }
-
   async function writeWithAi(project) {
     setBusyId(project.id);
     try {
@@ -268,13 +215,14 @@ export default function ProjectsView({ session, onError }) {
         >
           {isAdmin
             ? "אין עדיין פרויקטים. הוסף את הראשון למעלה."
-            : "אין לך עדיין גישה לאף פרויקט. פנה למנהל."}
+            : "לא הועבר אליך אף פרויקט עדיין."}
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
           {projects.map((p) => {
             const editable = p.level === "admin" || p.level === "edit";
             const st = STATUS[p.status] ?? STATUS.active;
+            const stage = STAGES[p.stage] ?? STAGES.draft;
             const open = openId === p.id;
             const busy = busyId === p.id;
 
@@ -292,39 +240,54 @@ export default function ProjectsView({ session, onError }) {
                   <Thumb project={p} color={st.color} />
 
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    {editingId === p.id ? (
-                      <input
-                        value={p.name}
-                        onChange={(e) => patchLocal(p.id, { name: e.target.value })}
-                        onBlur={() => {
-                          setEditingId(null);
-                          queueSave(p.id, { name: p.name.trim() || "ללא שם" }, { immediate: true });
-                        }}
-                        onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-                        autoFocus
-                        style={{ ...input, fontSize: "16px", fontWeight: 700, width: "100%" }}
-                      />
-                    ) : (
-                      <h2
-                        onClick={() => isAdmin && setEditingId(p.id)}
-                        title={isAdmin ? "לחץ לשינוי שם" : undefined}
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                      {editingId === p.id ? (
+                        <input
+                          value={p.name}
+                          onChange={(e) => patchLocal(p.id, { name: e.target.value })}
+                          onBlur={() => {
+                            setEditingId(null);
+                            queueSave(p.id, { name: p.name.trim() || "ללא שם" }, { immediate: true });
+                          }}
+                          onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+                          autoFocus
+                          style={{ ...input, fontSize: "16px", fontWeight: 700, flex: 1 }}
+                        />
+                      ) : (
+                        <h2
+                          onClick={() => isAdmin && setEditingId(p.id)}
+                          title={isAdmin ? "לחץ לשינוי שם" : undefined}
+                          style={{ fontSize: "16px", fontWeight: 700, margin: 0, cursor: isAdmin ? "text" : "default" }}
+                        >
+                          {p.name}
+                        </h2>
+                      )}
+
+                      <span
                         style={{
-                          fontSize: "16px",
-                          fontWeight: 700,
-                          margin: "0 0 2px",
-                          cursor: isAdmin ? "text" : "default",
+                          fontSize: "10.5px",
+                          padding: "2px 8px",
+                          borderRadius: "99px",
+                          color: stage.color,
+                          border: `1px solid ${stage.color}55`,
                         }}
                       >
-                        {p.name}
-                      </h2>
-                    )}
+                        {stage.label}
+                      </span>
+
+                      {p.open_notes > 0 && (
+                        <span style={{ fontSize: "10.5px", padding: "2px 8px", borderRadius: "99px", color: C.danger, border: `1px solid ${C.danger}55` }}>
+                          {p.open_notes} לתיקון
+                        </span>
+                      )}
+                    </div>
 
                     {p.description && (
                       <p
                         style={{
                           fontSize: "12.5px",
                           color: C.muted,
-                          margin: "0 0 6px",
+                          margin: "3px 0 6px",
                           lineHeight: 1.5,
                           display: "-webkit-box",
                           WebkitLineClamp: 2,
@@ -336,27 +299,13 @@ export default function ProjectsView({ session, onError }) {
                       </p>
                     )}
 
-                    <div
-                      style={{
-                        display: "flex",
-                        flexWrap: "wrap",
-                        alignItems: "center",
-                        gap: "5px 12px",
-                        fontSize: "11.5px",
-                      }}
-                    >
+                    <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "5px 12px", fontSize: "11.5px" }}>
                       {editable ? (
                         <select
                           value={p.status}
                           onChange={(e) => queueSave(p.id, { status: e.target.value }, { immediate: true })}
                           aria-label="סטטוס"
-                          style={{
-                            ...input,
-                            padding: "3px 7px",
-                            fontSize: "11.5px",
-                            color: st.color,
-                            borderRadius: "6px",
-                          }}
+                          style={{ ...input, padding: "3px 7px", fontSize: "11.5px", color: st.color, borderRadius: "6px" }}
                         >
                           {Object.entries(STATUS).map(([key, v]) => (
                             <option key={key} value={key} style={{ color: C.ink, background: C.surfaceAlt }}>
@@ -366,15 +315,7 @@ export default function ProjectsView({ session, onError }) {
                         </select>
                       ) : (
                         <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", color: C.muted }}>
-                          <i
-                            style={{
-                              width: "7px",
-                              height: "7px",
-                              borderRadius: "50%",
-                              background: st.color,
-                              display: "inline-block",
-                            }}
-                          />
+                          <i style={{ width: "7px", height: "7px", borderRadius: "50%", background: st.color, display: "inline-block" }} />
                           {st.label}
                         </span>
                       )}
@@ -384,13 +325,7 @@ export default function ProjectsView({ session, onError }) {
                           href={p.link}
                           target="_blank"
                           rel="noopener noreferrer"
-                          style={{
-                            color: C.accent,
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "4px",
-                            textDecoration: "none",
-                          }}
+                          style={{ color: C.accent, display: "inline-flex", alignItems: "center", gap: "4px", textDecoration: "none" }}
                         >
                           <Link2 size={12} />
                           {p.link.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "")}
@@ -444,13 +379,7 @@ export default function ProjectsView({ session, onError }) {
                       <button
                         onClick={() => removeProject(p)}
                         aria-label="מחק פרויקט"
-                        style={{
-                          background: "none",
-                          border: "none",
-                          cursor: "pointer",
-                          color: C.muted,
-                          padding: "2px",
-                        }}
+                        style={{ background: "none", border: "none", cursor: "pointer", color: C.muted, padding: "2px" }}
                       >
                         <Trash2 size={15} />
                       </button>
@@ -459,128 +388,15 @@ export default function ProjectsView({ session, onError }) {
                 </div>
 
                 {open && (
-                  <div
-                    style={{
-                      borderTop: `1px solid ${C.line}`,
-                      background: C.bg,
-                      padding: "14px 16px",
-                      display: "grid",
-                      gap: "12px",
-                    }}
-                  >
-                    {editable ? (
-                      <>
-                        <Field label="תיאור">
-                          <textarea
-                            value={p.description}
-                            onChange={(e) => queueSave(p.id, { description: e.target.value })}
-                            placeholder="על מה הפרויקט, מה השלב הנוכחי, מה חסם"
-                            rows={3}
-                            style={{ ...input, width: "100%", resize: "vertical", lineHeight: 1.55 }}
-                          />
-                        </Field>
-
-                        <Field label="אפיון קהל יעד">
-                          <input
-                            value={p.audience ?? ""}
-                            onChange={(e) => queueSave(p.id, { audience: e.target.value })}
-                            placeholder="מי הקהל, באיזה גיל, מה מניע אותו לפעולה"
-                            style={{ ...input, width: "100%" }}
-                          />
-                        </Field>
-
-                        <div
-                          style={{
-                            display: "grid",
-                            gap: "12px",
-                            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                          }}
-                        >
-                          <Field label="קישור">
-                            <input
-                              value={p.link ?? ""}
-                              onChange={(e) => patchLocal(p.id, { link: e.target.value })}
-                              onBlur={(e) => queueSave(p.id, { link: e.target.value.trim() }, { immediate: true })}
-                              placeholder="example.co.il"
-                              dir="ltr"
-                              style={{ ...input, width: "100%", textAlign: "left" }}
-                            />
-                          </Field>
-
-                          <Field label="תמונה">
-                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                              <input
-                                ref={(el) => fileInputs.current.set(p.id, el)}
-                                type="file"
-                                accept="image/*"
-                                hidden
-                                onChange={(e) => {
-                                  pickImage(p, e.target.files?.[0]);
-                                  e.target.value = "";
-                                }}
-                              />
-                              <button
-                                onClick={() => fileInputs.current.get(p.id)?.click()}
-                                disabled={busy}
-                                style={ghostButton}
-                              >
-                                <ImagePlus size={14} /> העלה מהמחשב
-                              </button>
-                              {p.image_url && (
-                                <button
-                                  onClick={() => queueSave(p.id, { image: "" }, { immediate: true })}
-                                  style={{ ...ghostButton, color: C.danger }}
-                                >
-                                  <X size={14} /> הסר
-                                </button>
-                              )}
-                            </div>
-                          </Field>
-                        </div>
-
-                        <Field label="או הדבק כתובת של תמונה">
-                          <input
-                            defaultValue={p.image_url?.startsWith("http") ? p.image_url : ""}
-                            onBlur={(e) => {
-                              const value = e.target.value.trim();
-                              if (value) queueSave(p.id, { image: value }, { immediate: true });
-                            }}
-                            placeholder="https://…/logo.png"
-                            dir="ltr"
-                            style={{ ...input, width: "100%", textAlign: "left" }}
-                          />
-                        </Field>
-
-                        <Field label="התקדמות">
-                          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                            <input
-                              type="range"
-                              min={0}
-                              max={100}
-                              value={p.progress}
-                              aria-label="אחוז התקדמות"
-                              onChange={(e) => queueSave(p.id, { progress: Number(e.target.value) })}
-                              style={{ flex: 1, accentColor: C.accent }}
-                            />
-                            <span
-                              style={{
-                                fontSize: "13px",
-                                width: "42px",
-                                textAlign: "left",
-                                fontVariantNumeric: "tabular-nums",
-                              }}
-                            >
-                              {p.progress}%
-                            </span>
-                          </div>
-                        </Field>
-                      </>
-                    ) : (
-                      <p style={{ margin: 0, fontSize: "13px", color: C.muted, lineHeight: 1.6 }}>
-                        {p.description || "אין עדיין תיאור לפרויקט הזה."}
-                      </p>
-                    )}
-                  </div>
+                  <ProjectDetails
+                    project={p}
+                    isAdmin={isAdmin}
+                    team={team}
+                    queueSave={queueSave}
+                    patchLocal={patchLocal}
+                    onError={onError}
+                    onReplace={replaceProject}
+                  />
                 )}
               </article>
             );

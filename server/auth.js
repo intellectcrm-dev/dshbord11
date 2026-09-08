@@ -110,13 +110,29 @@ export function requireAdmin(req, res, next) {
 
 // 'admin' | 'edit' | 'view' | null — מקור האמת היחיד לגישה.
 // כל route שנוגע בפרויקט שואל את זה, אף פעם לא את הקליינט.
+export const TEAM_ROLES = ["member", "marketing", "developer"];
+
 export async function permissionFor(user, projectId) {
   if (user.role === "admin") return "admin";
+
   const row = await one(
-    "SELECT level FROM project_permissions WHERE user_id = $1 AND project_id = $2",
+    `SELECT p.stage, p.assigned_to,
+            (SELECT level FROM project_permissions
+              WHERE user_id = $1 AND project_id = p.id) AS level
+       FROM projects p
+      WHERE p.id = $2`,
     [user.id, projectId]
   );
-  return row?.level ?? null;
+  if (!row) return null;
+
+  // טיוטה שייכת למנהל בלבד. כל עוד הפרויקט לא הועבר הלאה, אין לאף אחד אחר
+  // דרך להגיע אליו — גם לא למי שיש לו רשומת הרשאה ישנה.
+  if (row.stage === "draft") return null;
+
+  // מי שהפרויקט הועבר אליו מקבל עריכה: הוא אמור לסמן הערות ולהשלים פרטים.
+  if (row.assigned_to === user.id) return "edit";
+
+  return row.level ?? null;
 }
 
 export function canEdit(level) {

@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { all, one, query, uid } from "../db.js";
 import { requireAuth, requireAdmin, permissionFor, canEdit } from "../auth.js";
+import notesRouter from "./notes.js";
+import githubRouter from "./github.js";
 
 const router = Router();
 const STATUSES = ["active", "paused", "done", "blocked"];
@@ -9,7 +11,10 @@ const STATUSES = ["active", "paused", "done", "blocked"];
 // קילובייטים, ולכן היא לא נשלחת ברשימת הפרויקטים: הלקוח מקבל image_url —
 // כתובת חיצונית כמות שהיא, או נתיב לתמונה השמורה שמוגש בבקשה נפרדת.
 const PROJECT_COLUMNS = `p.id, p.name, p.description, p.status, p.progress,
-    p.link, p.audience, p.created_by, p.created_at, p.updated_at,
+    p.link, p.audience, p.repo_url, p.brief, p.stage, p.assigned_to, p.handed_at,
+    p.created_by, p.created_at, p.updated_at,
+    (SELECT count(*)::int FROM project_notes n
+      WHERE n.project_id = p.id AND NOT n.done) AS open_notes,
     CASE WHEN p.image = ''            THEN ''
          WHEN p.image LIKE 'data:%'   THEN '/api/projects/' || p.id || '/image'
          ELSE p.image
@@ -62,11 +67,16 @@ router.get("/", async (req, res) => {
     return res.json(rows.map((p) => ({ ...p, level: "admin" })));
   }
 
+  // טיוטה לא יוצאת מחשבון המנהל. מעבר לכך רואים פרויקט שהועבר אליי, או
+  // כזה שיש לי בו רשומת הרשאה מפורשת.
   const rows = await all(
-    `SELECT ${PROJECT_COLUMNS}, pp.level
+    `SELECT ${PROJECT_COLUMNS},
+            CASE WHEN p.assigned_to = $1 THEN 'edit' ELSE pp.level END AS level
        FROM projects p
-       JOIN project_permissions pp ON pp.project_id = p.id
-      WHERE pp.user_id = $1
+       LEFT JOIN project_permissions pp
+              ON pp.project_id = p.id AND pp.user_id = $1
+      WHERE p.stage <> 'draft'
+        AND (p.assigned_to = $1 OR pp.level IS NOT NULL)
       ORDER BY p.created_at`,
     [req.user.id]
   );
@@ -148,6 +158,16 @@ router.patch("/:id", async (req, res) => {
     }
     add("audience", patch.audience);
   }
+  if ("repo_url" in patch) {
+    const repo = normalizeLink(patch.repo_url);
+    if (repo === null) return res.status(400).json({ error: "קישור הגיט אינו כתובת תקינה" });
+    add("repo_url", repo);
+  }
+  if ("brief" in patch) {
+    if (typeof patch.brief !== "string") return res.status(400).json({ error: "תדריך לא תקין" });
+    if (patch.brief.length > 8000) return res.status(400).json({ error: "התדריך ארוך מדי" });
+    add("brief", patch.brief);
+  }
   if ("image" in patch) {
     const image = normalizeImage(patch.image);
     if (image === null) {
@@ -166,6 +186,54 @@ router.patch("/:id", async (req, res) => {
 
   res.json({ ...(await fetchProject(req.params.id)), level });
 });
+
+// העברת פרויקט הלאה. רק המנהל מעביר — זו בדיוק הנקודה שבה פרויקט מפסיק
+// להיות שלו בלבד ונעשה גלוי למי שקיבל אותו.
+const STAGES = ["draft", "marketing", "dev", "done"];
+
+router.post("/:id/handoff", requireAdmin, async (req, res) => {
+  const stage = typeof req.body?.stage === "string" ? req.body.stage : "";
+  if (!STAGES.includes(stage)) return res.status(400).json({ error: "שלב לא חוקי" });
+
+  const project = await one("SELECT id FROM projects WHERE id = $1", [req.params.id]);
+  if (!project) return res.status(404).json({ error: "פרויקט לא נמצא" });
+
+  let assignedTo = null;
+  if (stage === "marketing" || stage === "dev") {
+    const userId = typeof req.body?.userId === "string" ? req.body.userId : "";
+    const target = await one("SELECT id, role FROM users WHERE id = $1", [userId]);
+    if (!target) return res.status(400).json({ error: "יש לבחור למי להעביר" });
+    if (target.role === "admin") return res.status(400).json({ error: "לא ניתן להעביר למנהל" });
+    assignedTo = target.id;
+  }
+
+  await query(
+    `UPDATE projects
+        SET stage = $1, assigned_to = $2,
+            handed_at = CASE WHEN $1 = 'draft' THEN NULL ELSE now() END,
+            updated_at = now()
+      WHERE id = $3`,
+    [stage, assignedTo, req.params.id]
+  );
+
+  res.json({ ...(await fetchProject(req.params.id)), level: "admin" });
+});
+
+// הערות ו-GitHub פועלים על פרויקט קיים, ולכן ההרשאה נבדקת פעם אחת כאן
+// במקום בכל ראוט בנפרד.
+async function withProject(req, res, next) {
+  try {
+    const level = await permissionFor(req.user, req.params.id);
+    if (!level) return res.status(404).json({ error: "פרויקט לא נמצא" });
+    req.projectLevel = level;
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
+
+router.use("/:id/notes", withProject, notesRouter);
+router.use("/:id/github", withProject, githubRouter);
 
 router.delete("/:id", requireAdmin, async (req, res) => {
   const result = await query("DELETE FROM projects WHERE id = $1", [req.params.id]);
