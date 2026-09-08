@@ -32,6 +32,24 @@ const BriefSchema = z.object({
   brief: z.string(),
 });
 
+// רשימת מסירה מקובצת: שלבים לפי סדר, ובכל שלב פריטים עם הסבר למה הם חשובים.
+const ChecklistSchema = z.object({
+  summary: z.string(),
+  groups: z.array(
+    z.object({
+      title: z.string(),
+      note: z.string(),
+      items: z.array(
+        z.object({
+          title: z.string(),
+          why: z.string(),
+          severity: z.enum(["info", "warning", "critical"]),
+        })
+      ),
+    })
+  ),
+});
+
 const COPY_SYSTEM = `אתה עוזר לבעל עסק לנהל לוח פרויקטים. בהינתן שם של פרויקט, כתוב שני שדות בעברית:
 
 description — תיאור קצר של הפרויקט, משפט או שניים, עד 220 תווים. ענייני, בלשון פשוטה, בלי סופרלטיבים ובלי שיווקיות.
@@ -63,6 +81,25 @@ const BRIEF_SYSTEM = `אתה כותב תדריך קצר לאיש שיווק שמ
 מה להדגיש — שתיים-שלוש נקודות מכירה שנובעות ממה שנמסר לך.
 
 אל תמציא מחירים, נתוני ביצועים, שמות לקוחות או הבטחות. אם פרט חסר, דלג עליו במקום להשלים אותו.`;
+
+const CHECKLIST_SYSTEM = `אתה בונה רשימת מסירה למנהל שצריך למסור מערכת ללקוח. אתה מקבל חלק מקובצי הריפו — לא את כולו.
+
+כתוב בעברית. החזר:
+
+summary — שתיים-שלוש שורות: מה חוסם מסירה עכשיו, ומה הסדר הנכון.
+
+groups — עד 5 קבוצות, לפי סדר הביצוע. לכל קבוצה:
+  title — שם השלב, למשל «תשתית — פעם אחת לפני הלקוח הראשון».
+  note — שורה או שתיים: למה השלב הזה קיים ומה קורה אם מדלגים עליו.
+  items — עד 8 פריטים. לכל פריט:
+    title — הפעולה עצמה, שורה אחת. שם משתנה סביבה או קובץ אם הוא ידוע.
+    why — למה זה חשוב ומה נשבר בלעדיו, עד 400 תווים.
+    severity — critical אם זה חוסם מסירה, warning לבעיה אמיתית שאינה חוסמת, info לשיפור.
+
+כללים:
+- הרשימה נגזרת מהקוד שקיבלת בלבד. אל תמציא משתני סביבה, קבצים או פיצ׳רים שלא ראית.
+- הפרד בין מה שנעשה פעם אחת לבין מה שחוזר על כל לקוח — זו ההפרדה שהכי עוזרת למי שמוסר.
+- אם הקוד לא מספיק כדי לקבוע פריט, השמט אותו במקום לנחש.`;
 
 let client;
 
@@ -246,6 +283,77 @@ router.post("/brief", async (req, res) => {
     ]);
 
     res.json(message.parsed_output);
+  } catch (err) {
+    fail(res, err);
+  }
+});
+
+// בניית רשימת המסירה. היא נשמרת כקבוצות של הערות, כך שהיא מתערבבת עם
+// ה-issues ועם מה שנכתב ביד — ומסומנת באותם תיבות סימון.
+router.post("/checklist", async (req, res) => {
+  const project = await loadProject(req, res);
+  if (!project) return;
+
+  const repo = parseRepo(project.repo_url);
+  if (!repo) return res.status(400).json({ error: "לפרויקט אין קישור תקין ל-GitHub." });
+
+  const anthropic = getClient();
+  if (!anthropic) return res.status(503).json(NO_KEY);
+
+  try {
+    const snapshot = await fetchRepoSnapshot(repo);
+    if (!snapshot.files.length) {
+      return res.status(422).json({ error: "לא נמצאו קובצי מקור לסריקה בריפו הזה." });
+    }
+
+    const sources = snapshot.files.map((f) => `--- ${f.path} ---\n${f.text}`).join("\n\n");
+
+    const message = await anthropic.messages.parse({
+      model: MODEL,
+      max_tokens: 16000,
+      system: CHECKLIST_SYSTEM,
+      output_config: { format: zodOutputFormat(ChecklistSchema) },
+      messages: [
+        {
+          role: "user",
+          content: `פרויקט: ${project.name}\nריפו: ${repo.owner}/${repo.repo}\nקבצים שנסרקו: ${snapshot.files.length}\n\n${sources}`,
+        },
+      ],
+    });
+    if (!guard(res, message)) return;
+
+    const { summary, groups } = message.parsed_output;
+
+    // רשימה קודמת שאיש לא סימן בה כלום מוחלפת. רשימה שכבר התחילו לעבוד
+    // לפיה נשארת, כדי שהתקדמות לא תימחק בלי שביקשו.
+    await query(
+      `DELETE FROM project_note_groups g
+        WHERE g.project_id = $1
+          AND NOT EXISTS (SELECT 1 FROM project_notes n WHERE n.group_id = g.id AND n.done)`,
+      [project.id]
+    );
+
+    let created = 0;
+    for (const [gi, group] of groups.slice(0, 5).entries()) {
+      const groupId = uid();
+      await query(
+        `INSERT INTO project_note_groups (id, project_id, title, note, position)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [groupId, project.id, group.title.slice(0, 200), group.note.slice(0, 1000), gi]
+      );
+
+      for (const [ii, item] of group.items.slice(0, 8).entries()) {
+        await query(
+          `INSERT INTO project_notes
+             (id, project_id, group_id, source, title, body, severity, position)
+           VALUES ($1, $2, $3, 'ai', $4, $5, $6, $7)`,
+          [uid(), project.id, groupId, item.title.slice(0, 300), item.why.slice(0, 4000), item.severity, ii]
+        );
+        created += 1;
+      }
+    }
+
+    res.json({ summary, groups: groups.length, items: created, scanned: snapshot.files.length });
   } catch (err) {
     fail(res, err);
   }

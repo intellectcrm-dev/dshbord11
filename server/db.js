@@ -141,6 +141,26 @@ const SCHEMA_SQL = `
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
   );
 
+  -- רשימת מסירה מקובצת: קבוצה נושאת כותרת, הסבר וסדר, והפריטים תלויים בה.
+  -- הערה שנוספה ביד נשארת בלי קבוצה ומוצגת תחת «כללי».
+  CREATE TABLE IF NOT EXISTS project_note_groups (
+    id         TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    title      TEXT NOT NULL,
+    note       TEXT NOT NULL DEFAULT '',
+    position   INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_note_groups_project ON project_note_groups(project_id);
+
+  ALTER TABLE project_notes ADD COLUMN IF NOT EXISTS position INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE project_notes ADD COLUMN IF NOT EXISTS group_id TEXT;
+
+  ALTER TABLE project_notes DROP CONSTRAINT IF EXISTS project_notes_group_id_fkey;
+  ALTER TABLE project_notes ADD  CONSTRAINT project_notes_group_id_fkey
+    FOREIGN KEY (group_id) REFERENCES project_note_groups(id) ON DELETE CASCADE;
+
   CREATE INDEX IF NOT EXISTS idx_notes_project ON project_notes(project_id);
 
   -- סנכרון חוזר מ-GitHub לא אמור לשכפל את אותו issue.
