@@ -53,7 +53,7 @@ function jar() {
       } catch {
         data = text;
       }
-      return { status: res.status, data };
+      return { status: res.status, data, type: res.headers.get("content-type") ?? "" };
     },
   };
 }
@@ -110,6 +110,7 @@ function startServer(db) {
       DB_SCHEMA: db.schema,
       PG_POOL_MAX: db.poolMax,
       JWT_SECRET: "smoke-test-secret",
+      ANTHROPIC_API_KEY: "",
       ADMIN_PASSWORD,
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -175,6 +176,51 @@ try {
 
   r = await admin.req("PATCH", `/projects/${p1}`, { progress: 40, status: "blocked", description: "בבדיקה" });
   check("עדכון על ידי מנהל -> 200", r.status === 200 && r.data.progress === 40 && r.data.status === "blocked", dump(r));
+
+  console.log("\n-- קישור, קהל יעד ותמונה --");
+  const PNG =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+  r = await admin.req("PATCH", `/projects/${p1}`, { link: "example.co.il" });
+  check("קישור בלי סכימה מקבל https", r.status === 200 && r.data.link === "https://example.co.il/", dump(r));
+
+  r = await admin.req("PATCH", `/projects/${p1}`, { link: "javascript:alert(1)" });
+  check("קישור לא תקין -> 400", r.status === 400, dump(r));
+
+  r = await admin.req("PATCH", `/projects/${p1}`, { audience: "בעלי עסקים קטנים, 35–55" });
+  check("אפיון קהל יעד נשמר", r.status === 200 && r.data.audience.startsWith("בעלי עסקים"), dump(r));
+
+  r = await admin.req("PATCH", `/projects/${p1}`, { image: PNG });
+  check(
+    "תמונה שהועלתה מוחזרת ככתובת ולא כתוכן",
+    r.status === 200 && r.data.image_url === `/api/projects/${p1}/image` && !("image" in r.data),
+    dump(r)
+  );
+
+  r = await admin.req("GET", `/projects/${p1}/image`);
+  check("הגשת התמונה -> 200 image/png", r.status === 200 && r.type.startsWith("image/png"), dump({ status: r.status, type: r.type }));
+
+  r = await admin.req("GET", "/projects");
+  check(
+    "רשימת הפרויקטים לא נושאת את גוף התמונה",
+    r.status === 200 && r.data.every((p) => !("image" in p)),
+    dump(r.data.map((p) => Object.keys(p)))
+  );
+
+  r = await admin.req("PATCH", `/projects/${p1}`, { image: "data:text/html;base64,PHNjcmlwdD4=" });
+  check("data URI שאינו תמונה -> 400", r.status === 400, dump(r));
+
+  r = await admin.req("PATCH", `/projects/${p1}`, { image: "" });
+  check("הסרת תמונה -> 200", r.status === 200 && r.data.image_url === "", dump(r));
+
+  r = await admin.req("GET", `/projects/${p1}/image`);
+  check("אין תמונה -> 404", r.status === 404, dump(r));
+
+  r = await admin.req("POST", "/ai/project-copy", { projectId: p1 });
+  check("כתיבה אוטומטית בלי מפתח -> 503", r.status === 503, dump(r));
+
+  r = await admin.req("POST", "/ai/project-copy", { projectId: "לא-קיים" });
+  check("כתיבה אוטומטית לפרויקט לא קיים -> 404", r.status === 404, dump(r));
 
   console.log("\n-- משתמשים והרשאות --");
   r = await admin.req("POST", "/users", { name: "דנה", password: "123" });

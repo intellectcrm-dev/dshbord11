@@ -98,6 +98,12 @@ const SCHEMA_SQL = `
     window_start TIMESTAMPTZ NOT NULL DEFAULT now(),
     locked_until TIMESTAMPTZ
   );
+
+  -- שדות שנוספו אחרי הגרסה הראשונה. ‎CREATE TABLE IF NOT EXISTS לא נוגע
+  -- בטבלה קיימת, ולכן ההרחבות נכתבות בנפרד ורצות שוב ושוב בלי נזק.
+  ALTER TABLE projects ADD COLUMN IF NOT EXISTS link     TEXT NOT NULL DEFAULT '';
+  ALTER TABLE projects ADD COLUMN IF NOT EXISTS image    TEXT NOT NULL DEFAULT '';
+  ALTER TABLE projects ADD COLUMN IF NOT EXISTS audience TEXT NOT NULL DEFAULT '';
 `;
 
 async function seedAdmin(client) {

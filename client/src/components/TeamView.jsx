@@ -196,7 +196,7 @@ export default function TeamView({ onError }) {
                         removeUser(u);
                       }}
                       aria-label="מחק איש צוות"
-                      style={{ background: "none", border: "none", cursor: "pointer", color: "#b5b3a8" }}
+                      style={{ background: "none", border: "none", cursor: "pointer", color: C.muted }}
                     >
                       <Trash2 size={15} />
                     </button>

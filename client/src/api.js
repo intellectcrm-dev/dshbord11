@@ -36,4 +36,6 @@ export const api = {
   setPermission: (userId, projectId, level) =>
     request("PUT", "/permissions", { userId, projectId, level }),
   setAdminPassword: (newPassword) => request("PUT", "/admin/password", { newPassword }),
+
+  generateCopy: (projectId) => request("POST", "/ai/project-copy", { projectId }),
 };

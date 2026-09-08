@@ -1,13 +1,16 @@
+/* עיצוב «סטודיו»: הערכים כאן חייבים להתאים ל-C ב-theme.js. */
 :root {
-  --bg: #f7f5f0;
-  --surface: #fff;
-  --ink: #1e2019;
-  --muted: #6b6b63;
-  --line: #d8d5c9;
-  --line-soft: #ece9dd;
-  --accent: #2f5d8a;
-  --danger: #b44b3d;
+  --bg: #12141a;
+  --surface: #1b1e26;
+  --surface-alt: #222630;
+  --ink: #edeff3;
+  --muted: #8c94a3;
+  --line: #2b303b;
+  --line-soft: #232833;
+  --accent: #e3a44b;
+  --danger: #e0685a;
   --font: "Assistant", "Rubik", system-ui, sans-serif;
+  color-scheme: dark;
 }
 
 * {
@@ -28,10 +31,19 @@ button {
   font-family: var(--font);
 }
 
+::placeholder {
+  color: #6b7280;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 input:disabled,
 textarea:disabled,
 select:disabled {
-  background: #f4f2ec;
+  background: var(--line-soft);
   color: var(--muted);
   cursor: not-allowed;
 }
@@ -39,4 +51,21 @@ select:disabled {
 button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+/* מחוון הטעינה של הכתיבה האוטומטית. */
+button:disabled svg {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button:disabled svg {
+    animation: none;
+  }
 }
