@@ -374,6 +374,79 @@ try {
   r = await admin.req("GET", `/projects/${p1}/github`);
   check("בלי GITHUB_TOKEN -> 503", r.status === 503, dump(r));
 
+  r = await admin.req("GET", `/projects/${p1}/notes`);
+  check(
+    "רשימת ההערות מחזירה קבוצות ופריטים",
+    r.status === 200 && Array.isArray(r.data.groups) && Array.isArray(r.data.notes),
+    dump(r)
+  );
+
+  check(
+    "הערה ידנית נשארת בלי שיוך לרשימה",
+    r.data.notes.every((n) => n.group_id === null),
+    dump(r.data.notes)
+  );
+
+  r = await admin.req("POST", `/projects/${p1}/notes`, { title: "בקבוצה זרה", groupId: "לא-קיים" });
+  check("שיוך לרשימה שאינה קיימת -> 400", r.status === 400, dump(r));
+
+  r = await admin.req("DELETE", `/projects/${p1}/notes/groups/לא-קיים`);
+  check("מחיקת רשימה שאינה קיימת -> 404", r.status === 404, dump(r));
+
+  console.log("\n-- רשימות מקובצות --");
+  r = await admin.req("POST", `/projects/${p1}/notes/groups`, { title: "  " });
+  check("רשימה בלי כותרת -> 400", r.status === 400, dump(r));
+
+  r = await admin.req("POST", `/projects/${p1}/notes/groups`, {
+    title: "תשתית — פעם אחת",
+    note: "בלי אלה אי אפשר למסור ללקוח.",
+  });
+  check("פתיחת רשימה -> 201", r.status === 201 && r.data.position === 0, dump(r));
+  const groupId = r.data.id;
+
+  r = await admin.req("POST", `/projects/${p1}/notes/groups`, { title: "קליטה — לכל לקוח" });
+  check("רשימה שנייה מקבלת מיקום עוקב", r.status === 201 && r.data.position === 1, dump(r));
+
+  r = await admin.req("POST", `/projects/${p1}/notes`, {
+    title: "להגדיר מפתח API",
+    body: "בלעדיו אין כתיבה אוטומטית",
+    severity: "critical",
+    groupId,
+  });
+  check("הוספת פריט לרשימה -> 201", r.status === 201 && r.data.group_id === groupId, dump(r));
+  const inGroupId = r.data.id;
+
+  r = await admin.req("GET", `/projects/${p1}/notes`);
+  check(
+    "הרשימות חוזרות לפי סדר עם הפריטים שלהן",
+    r.status === 200 &&
+      r.data.groups.length === 2 &&
+      r.data.groups[0].title === "תשתית — פעם אחת" &&
+      r.data.notes.filter((n) => n.group_id === groupId).length === 1,
+    dump(r)
+  );
+
+  r = await member.req("POST", `/projects/${p1}/notes/groups`, { title: "לא מורשה" });
+  check("הרשאת צפייה לא פותחת רשימה -> 403", r.status === 403, dump(r));
+
+  r = await admin.req("DELETE", `/projects/${p1}/notes/groups/${groupId}`);
+  check("מחיקת רשימה -> 200", r.status === 200, dump(r));
+
+  r = await admin.req("GET", `/projects/${p1}/notes`);
+  check(
+    "מחיקת רשימה מוחקת גם את הפריטים שבה",
+    r.status === 200 &&
+      r.data.groups.length === 1 &&
+      !r.data.notes.some((n) => n.id === inGroupId),
+    dump(r)
+  );
+
+  r = await admin.req("POST", "/ai/checklist", { projectId: p1 });
+  check("בניית רשימה בלי מפתח -> 503", r.status === 503, dump(r));
+
+  r = await member.req("POST", "/ai/checklist", { projectId: p1 });
+  check("הרשאת צפייה לא בונה רשימה -> 403", r.status === 403, dump(r));
+
   r = await admin.req("DELETE", `/projects/${p1}/notes/${noteId}`);
   check("מחיקת הערה -> 200", r.status === 200, dump(r));
 

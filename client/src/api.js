@@ -43,6 +43,8 @@ export const api = {
   addNote: (id, note) => request("POST", `/projects/${id}/notes`, note),
   updateNote: (id, noteId, patch) => request("PATCH", `/projects/${id}/notes/${noteId}`, patch),
   deleteNote: (id, noteId) => request("DELETE", `/projects/${id}/notes/${noteId}`),
+  addNoteGroup: (id, group) => request("POST", `/projects/${id}/notes/groups`, group),
+  deleteNoteGroup: (id, groupId) => request("DELETE", `/projects/${id}/notes/groups/${groupId}`),
 
   repoStatus: (id) => request("GET", `/projects/${id}/github`),
   syncIssues: (id) => request("POST", `/projects/${id}/github/sync`),
@@ -50,4 +52,5 @@ export const api = {
   generateCopy: (projectId) => request("POST", "/ai/project-copy", { projectId }),
   scanCode: (projectId) => request("POST", "/ai/scan", { projectId }),
   generateBrief: (projectId) => request("POST", "/ai/brief", { projectId }),
+  buildChecklist: (projectId) => request("POST", "/ai/checklist", { projectId }),
 };

@@ -6,6 +6,7 @@ import {
   Loader2,
   Megaphone,
   RefreshCw,
+  ListChecks,
   ScanSearch,
   Send,
   Trash2,
@@ -71,15 +72,183 @@ function Field({ label, children }) {
   );
 }
 
+// סרגל התקדמות. אותו רכיב משרת גם את הרשימה כולה וגם קבוצה בודדת.
+function Meter({ done, total }) {
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+      <div style={{ flex: 1, height: "6px", borderRadius: "99px", background: C.line, overflow: "hidden" }}>
+        <i
+          style={{
+            display: "block",
+            height: "100%",
+            width: `${pct}%`,
+            background: C.accent,
+            borderRadius: "99px",
+            transition: "width .3s ease",
+          }}
+        />
+      </div>
+      <span
+        style={{
+          fontSize: "11.5px",
+          color: C.muted,
+          fontVariantNumeric: "tabular-nums",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {done} / {total} הושלמו
+      </span>
+    </div>
+  );
+}
+
+function NoteRow({ note, editable, busy, onToggle, onRemove }) {
+  const sev = SEVERITY[note.severity] ?? SEVERITY.info;
+  return (
+    <li
+      style={{
+        background: C.surface,
+        border: `1px solid ${C.line}`,
+        borderInlineStart: note.severity === "critical" && !note.done ? `3px solid ${sev.color}` : undefined,
+        borderRadius: C.radius,
+        padding: "10px 12px",
+        display: "flex",
+        alignItems: "flex-start",
+        gap: "10px",
+        opacity: note.done ? 0.55 : 1,
+      }}
+    >
+      {editable && (
+        <button
+          onClick={() => onToggle(note)}
+          disabled={busy === `note:${note.id}`}
+          aria-label={note.done ? "החזר לפתוח" : "סמן כטופל"}
+          style={{
+            marginTop: "2px",
+            width: "17px",
+            height: "17px",
+            flexShrink: 0,
+            borderRadius: "5px",
+            border: `1px solid ${note.done ? "#5FBF8A" : C.muted}`,
+            background: note.done ? "#5FBF8A" : "transparent",
+            color: C.accentInk,
+            cursor: "pointer",
+            display: "grid",
+            placeItems: "center",
+            padding: 0,
+          }}
+        >
+          {note.done && <Check size={12} />}
+        </button>
+      )}
+
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            fontSize: "13.5px",
+            fontWeight: 600,
+            textDecoration: note.done ? "line-through" : "none",
+          }}
+        >
+          {note.url ? (
+            <a href={note.url} target="_blank" rel="noopener noreferrer" style={{ color: C.ink, textDecoration: "none" }}>
+              {note.title}
+            </a>
+          ) : (
+            note.title
+          )}
+        </div>
+        {note.body && (
+          <p style={{ margin: "4px 0 0", fontSize: "12.5px", color: C.muted, lineHeight: 1.55, maxWidth: "62ch" }}>
+            {note.body}
+          </p>
+        )}
+      </div>
+
+      <span style={{ fontSize: "11px", color: sev.color, flexShrink: 0 }}>{sev.label}</span>
+      <span style={{ fontSize: "11px", color: C.muted, flexShrink: 0 }}>{SOURCE[note.source]}</span>
+
+      {editable && (
+        <button
+          onClick={() => onRemove(note)}
+          aria-label="מחק הערה"
+          style={{ background: "none", border: "none", cursor: "pointer", color: C.muted, padding: 0, flexShrink: 0 }}
+        >
+          <Trash2 size={13} />
+        </button>
+      )}
+    </li>
+  );
+}
+
+// קבוצה אחת ברשימת המסירה. פריטים שלא שויכו לרשימה מוצגים באותו רכיב
+// בלי כותרת שלב, כדי שהכול ייראה כרשימה אחת ולא כשתי מערכות.
+function NoteGroup({ group, step, items, editable, busy, onToggle, onRemove, onRemoveGroup }) {
+  const done = items.filter((n) => n.done).length;
+
+  return (
+    <section style={{ display: "grid", gap: "9px" }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: "9px", flexWrap: "wrap" }}>
+        {step && (
+          <span style={{ fontSize: "11.5px", color: C.muted, fontVariantNumeric: "tabular-nums" }}>{step}</span>
+        )}
+        <h4 style={{ margin: 0, fontSize: "14px", fontWeight: 700 }}>{group ? group.title : "כללי"}</h4>
+        <span style={{ fontSize: "11.5px", color: done === items.length ? "#5FBF8A" : C.muted }}>
+          {done}/{items.length}
+        </span>
+        {group && editable && (
+          <button
+            onClick={() => onRemoveGroup(group)}
+            disabled={busy === `group:${group.id}`}
+            aria-label="מחק את הרשימה"
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              color: C.muted,
+              padding: 0,
+              marginInlineStart: "auto",
+            }}
+          >
+            <Trash2 size={13} />
+          </button>
+        )}
+      </div>
+
+      {group?.note && (
+        <p style={{ margin: 0, fontSize: "12.5px", color: C.muted, lineHeight: 1.55, maxWidth: "62ch" }}>
+          {group.note}
+        </p>
+      )}
+
+      <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: "6px" }}>
+        {items.map((note) => (
+          <NoteRow
+            key={note.id}
+            note={note}
+            editable={editable}
+            busy={busy}
+            onToggle={onToggle}
+            onRemove={onRemove}
+          />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 export default function ProjectDetails({ project, isAdmin, team, queueSave, patchLocal, onError, onReplace }) {
   const editable = project.level === "admin" || project.level === "edit";
 
   const [notes, setNotes] = useState([]);
+  const [groups, setGroups] = useState([]);
   const [repo, setRepo] = useState(null);
   const [repoError, setRepoError] = useState("");
   const [scanSummary, setScanSummary] = useState("");
   const [noteTitle, setNoteTitle] = useState("");
   const [noteSeverity, setNoteSeverity] = useState("warning");
+  const [noteGroupId, setNoteGroupId] = useState("");
   const [busy, setBusy] = useState("");
   const fileInput = useRef(null);
 
@@ -88,7 +257,9 @@ export default function ProjectDetails({ project, isAdmin, team, queueSave, patc
 
   const loadNotes = useCallback(async () => {
     try {
-      setNotes(await api.listNotes(projectId));
+      const data = await api.listNotes(projectId);
+      setGroups(data.groups);
+      setNotes(data.notes);
     } catch (err) {
       onError(err);
     }
@@ -131,7 +302,7 @@ export default function ProjectDetails({ project, isAdmin, team, queueSave, patc
     run("note", async () => {
       const title = noteTitle.trim();
       if (!title) return;
-      const created = await api.addNote(projectId, { title, severity: noteSeverity });
+      const created = await api.addNote(projectId, { title, severity: noteSeverity, groupId: noteGroupId });
       setNotes((prev) => [created, ...prev]);
       setNoteTitle("");
       onReplace({ ...project, open_notes: (project.open_notes ?? 0) + 1 });
@@ -164,6 +335,30 @@ export default function ProjectDetails({ project, isAdmin, team, queueSave, patc
       await loadNotes();
     });
 
+  const buildChecklist = () =>
+    run("checklist", async () => {
+      const result = await api.buildChecklist(projectId);
+      setScanSummary(result.summary);
+      await loadNotes();
+      onReplace({ ...project, open_notes: (project.open_notes ?? 0) + result.items });
+    });
+
+  const addGroup = () =>
+    run("group", async () => {
+      const title = window.prompt("שם הרשימה החדשה:", "")?.trim();
+      if (!title) return;
+      const group = await api.addNoteGroup(projectId, { title });
+      setGroups((prev) => [...prev, group]);
+      setNoteGroupId(group.id);
+    });
+
+  const removeGroup = (group) =>
+    run(`group:${group.id}`, async () => {
+      if (!window.confirm(`למחוק את הרשימה «${group.title}» וכל הפריטים שבה?`)) return;
+      await api.deleteNoteGroup(projectId, group.id);
+      await loadNotes();
+    });
+
   const writeBrief = () =>
     run("brief", async () => {
       const { brief } = await api.generateBrief(projectId);
@@ -183,6 +378,12 @@ export default function ProjectDetails({ project, isAdmin, team, queueSave, patc
     });
 
   const openNotes = notes.filter((n) => !n.done);
+
+  // הקבוצות לפי סדרן, ואחריהן מה שלא שויך לאף רשימה. קבוצה ריקה לא מוצגת.
+  const grouped = [
+    ...groups.map((group) => ({ group, items: notes.filter((n) => n.group_id === group.id) })),
+    { group: null, items: notes.filter((n) => !n.group_id) },
+  ].filter((entry) => entry.items.length > 0);
   const marketers = team.filter((u) => u.role === "marketing" || u.role === "member");
   const developers = team.filter((u) => u.role === "developer" || u.role === "member");
 
@@ -367,8 +568,26 @@ export default function ProjectDetails({ project, isAdmin, team, queueSave, patc
         </Section>
       )}
 
-      {/* ---------------- הערות ---------------- */}
-      <Section title={`הערות ותיקונים · ${openNotes.length} פתוחות`}>
+      {/* ---------------- הערות ורשימת מסירה ---------------- */}
+      <Section
+        title={`הערות ותיקונים · ${openNotes.length} מתוך ${notes.length} פתוחות`}
+        aside={
+          editable && (
+            <div style={{ display: "flex", gap: "6px" }}>
+              <button onClick={addGroup} disabled={busy === "group"} style={ghostButton}>
+                + רשימה חדשה
+              </button>
+              {project.repo_url && (
+                <button onClick={buildChecklist} disabled={busy === "checklist"} style={ghostButton}>
+                  {busy === "checklist" ? <Loader2 size={13} /> : <ListChecks size={13} />} בנה רשימה עם AI
+                </button>
+              )}
+            </div>
+          )
+        }
+      >
+        {notes.length > 0 && <Meter done={notes.length - openNotes.length} total={notes.length} />}
+
         {editable && (
           <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
             <input
@@ -378,6 +597,19 @@ export default function ProjectDetails({ project, isAdmin, team, queueSave, patc
               placeholder="מה צריך לתקן"
               style={{ ...input, flex: 1, minWidth: "180px" }}
             />
+            <select
+              value={noteGroupId}
+              onChange={(e) => setNoteGroupId(e.target.value)}
+              aria-label="שיוך לרשימה"
+              style={{ ...input, minWidth: "130px" }}
+            >
+              <option value="">כללי</option>
+              {groups.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.title}
+                </option>
+              ))}
+            </select>
             <select
               value={noteSeverity}
               onChange={(e) => setNoteSeverity(e.target.value)}
@@ -397,84 +629,27 @@ export default function ProjectDetails({ project, isAdmin, team, queueSave, patc
         )}
 
         {notes.length === 0 ? (
-          <p style={{ margin: 0, fontSize: "12.5px", color: C.muted }}>אין הערות פתוחות.</p>
+          <p style={{ margin: 0, fontSize: "12.5px", color: C.muted }}>
+            {project.repo_url
+              ? "אין עדיין הערות. אפשר להוסיף ידנית, למשוך Issues, או לבנות רשימת מסירה מהקוד."
+              : "אין עדיין הערות. הוסף קישור לריפו כדי לבנות רשימה מהקוד."}
+          </p>
         ) : (
-          <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: "1px", background: C.line }}>
-            {notes.map((note) => {
-              const sev = SEVERITY[note.severity] ?? SEVERITY.info;
-              return (
-                <li
-                  key={note.id}
-                  style={{
-                    background: C.surface,
-                    padding: "9px 11px",
-                    display: "flex",
-                    alignItems: "flex-start",
-                    gap: "9px",
-                    opacity: note.done ? 0.5 : 1,
-                  }}
-                >
-                  {editable && (
-                    <button
-                      onClick={() => toggleNote(note)}
-                      aria-label={note.done ? "החזר לפתוח" : "סמן כטופל"}
-                      style={{
-                        marginTop: "2px",
-                        width: "16px",
-                        height: "16px",
-                        flexShrink: 0,
-                        borderRadius: "4px",
-                        border: `1px solid ${note.done ? "#5FBF8A" : C.line}`,
-                        background: note.done ? "#5FBF8A" : "transparent",
-                        color: C.accentInk,
-                        cursor: "pointer",
-                        display: "grid",
-                        placeItems: "center",
-                        padding: 0,
-                      }}
-                    >
-                      {note.done && <Check size={12} />}
-                    </button>
-                  )}
-
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: "13px", textDecoration: note.done ? "line-through" : "none" }}>
-                      {note.url ? (
-                        <a
-                          href={note.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{ color: C.ink, textDecoration: "none" }}
-                        >
-                          {note.title}
-                        </a>
-                      ) : (
-                        note.title
-                      )}
-                    </div>
-                    {note.body && (
-                      <p style={{ margin: "3px 0 0", fontSize: "12px", color: C.muted, lineHeight: 1.5 }}>
-                        {note.body}
-                      </p>
-                    )}
-                  </div>
-
-                  <span style={{ fontSize: "11px", color: sev.color, flexShrink: 0 }}>{sev.label}</span>
-                  <span style={{ fontSize: "11px", color: C.muted, flexShrink: 0 }}>{SOURCE[note.source]}</span>
-
-                  {editable && (
-                    <button
-                      onClick={() => removeNote(note)}
-                      aria-label="מחק הערה"
-                      style={{ background: "none", border: "none", cursor: "pointer", color: C.muted, padding: 0 }}
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
+          <div style={{ display: "grid", gap: "18px" }}>
+            {grouped.map(({ group, items }, index) => (
+              <NoteGroup
+                key={group?.id ?? "loose"}
+                group={group}
+                step={group ? String(index + 1).padStart(2, "0") : null}
+                items={items}
+                editable={editable}
+                busy={busy}
+                onToggle={toggleNote}
+                onRemove={removeNote}
+                onRemoveGroup={removeGroup}
+              />
+            ))}
+          </div>
         )}
       </Section>
 
