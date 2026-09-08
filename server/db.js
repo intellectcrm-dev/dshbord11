@@ -4,40 +4,60 @@ import bcrypt from "bcryptjs";
 
 const { Pool } = pg;
 
-const connectionString = process.env.DATABASE_URL;
-if (!connectionString) {
-  throw new Error(
-    "DATABASE_URL חסר. העתק את .env.example ל-.env ומלא את מחרוזת החיבור ל-Postgres (ראה README)."
-  );
-}
-
 // כל העבודה מתבצעת בתוך סכימה אחת. ברירת המחדל public, והבדיקות מקבלות
 // סכימה זמנית משלהן כדי לא לגעת בנתונים אמיתיים.
 export const SCHEMA = process.env.DB_SCHEMA || "public";
 const quotedSchema = `"${SCHEMA.replace(/"/g, '""')}"`;
 
-// pool קטן בכוונה: על Vercel כל instance מחזיק pool משלו, ומול Neon עדיף
-// להתחבר דרך ה-endpoint המאגד (pooled) עם מעט חיבורים לכל instance.
-export const pool = new Pool({
-  connectionString,
-  max: Number(process.env.PG_POOL_MAX) || 3,
-  idleTimeoutMillis: 10_000,
-  connectionTimeoutMillis: 15_000,
-});
+// ה-pool נבנה בשימוש הראשון ולא בטעינת המודול. על serverless חריגה בזמן
+// import מפילה את הפונקציה כולה, והפלטפורמה מחזירה דף שגיאה גנרי שלא מסביר
+// דבר; כך הבקשה נכשלת עם הודעה ברורה ו-/api/health עדיין מסוגל לענות.
+let pool;
 
-pool.on("connect", (client) => {
-  client.query(`SET search_path TO ${quotedSchema}`).catch(() => {
-    /* מטופל בשאילתה הבאה שתיכשל בקול */
+function createPool() {
+  // ערך שהודבק בממשק ניהול עלול לגרור רווחים בקצוות.
+  const connectionString = process.env.DATABASE_URL?.trim();
+  if (!connectionString) {
+    throw new Error(
+      "DATABASE_URL חסר. העתק את .env.example ל-.env ומלא את מחרוזת החיבור ל-Postgres (ראה README)."
+    );
+  }
+
+  // pool קטן בכוונה: על Vercel כל instance מחזיק pool משלו, ומול ספק מנוהל
+  // עדיף להתחבר דרך ה-endpoint המאגד (pooled) עם מעט חיבורים לכל instance.
+  const created = new Pool({
+    connectionString,
+    max: Number(process.env.PG_POOL_MAX) || 3,
+    idleTimeoutMillis: 10_000,
+    connectionTimeoutMillis: 15_000,
   });
-});
 
-pool.on("error", (err) => {
-  console.error("שגיאת pool של Postgres:", err.message);
-});
+  created.on("connect", (client) => {
+    client.query(`SET search_path TO ${quotedSchema}`).catch(() => {
+      /* מטופל בשאילתה הבאה שתיכשל בקול */
+    });
+  });
 
-export const query = (text, params) => pool.query(text, params);
-export const one = async (text, params) => (await pool.query(text, params)).rows[0] ?? null;
-export const all = async (text, params) => (await pool.query(text, params)).rows;
+  created.on("error", (err) => {
+    console.error("שגיאת pool של Postgres:", err.message);
+  });
+
+  return created;
+}
+
+export function getPool() {
+  return (pool ??= createPool());
+}
+
+export async function closePool() {
+  const current = pool;
+  pool = undefined;
+  await current?.end();
+}
+
+export const query = (text, params) => getPool().query(text, params);
+export const one = async (text, params) => (await getPool().query(text, params)).rows[0] ?? null;
+export const all = async (text, params) => (await getPool().query(text, params)).rows;
 
 const SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS users (
@@ -95,7 +115,7 @@ async function seedAdmin(client) {
 }
 
 async function initialize() {
-  const client = await pool.connect();
+  const client = await getPool().connect();
   try {
     await client.query(`CREATE SCHEMA IF NOT EXISTS ${quotedSchema}`);
     await client.query(`SET search_path TO ${quotedSchema}`);

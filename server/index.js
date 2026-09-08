@@ -5,7 +5,7 @@ import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { ensureReady } from "./db.js";
+import { ensureReady, SCHEMA } from "./db.js";
 import authRoutes from "./routes/auth.js";
 import projectRoutes from "./routes/projects.js";
 import userRoutes from "./routes/users.js";
@@ -22,12 +22,38 @@ app.set("trust proxy", 1);
 app.use(express.json({ limit: "100kb" }));
 app.use(cookieParser());
 
+// משתני הסביבה שבלעדיהם השרת לא יכול לעבוד כלל.
+const REQUIRED_ENV = ["DATABASE_URL", "JWT_SECRET"];
+
+// בדיקת הבריאות רשומה לפני ensureReady ולכן עונה גם כשהתצורה שבורה. זו
+// הדרך לאבחן פריסה מרחוק: היא מדווחת אילו משתנים הוגדרו (כן/לא בלבד, בלי
+// ערכים) ואם החיבור לבסיס הנתונים עלה, במקום להיכשל מאחורי דף שגיאה גנרי.
+app.get("/api/health", async (req, res) => {
+  const env = Object.fromEntries(
+    REQUIRED_ENV.map((name) => [name, Boolean(process.env[name]?.trim())])
+  );
+  const missing = REQUIRED_ENV.filter((name) => !env[name]);
+
+  if (missing.length > 0) {
+    return res.status(503).json({
+      ok: false,
+      env,
+      error: `חסרים משתני סביבה: ${missing.join(", ")}. הגדר אותם והרץ פריסה מחדש.`,
+    });
+  }
+
+  try {
+    await ensureReady();
+    res.json({ ok: true, env, db: "ok", schema: SCHEMA });
+  } catch (err) {
+    res.status(503).json({ ok: false, env, db: "failed", error: err.message });
+  }
+});
+
 // יצירת הסכימה וזריעת המנהל קורות פעם אחת לכל instance, בבקשה הראשונה שמגיעה.
 app.use("/api", (req, res, next) => {
   ensureReady().then(() => next(), next);
 });
-
-app.get("/api/health", (req, res) => res.json({ ok: true }));
 
 app.use("/api/auth", authRoutes);
 app.use("/api/projects", projectRoutes);

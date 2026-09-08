@@ -9,13 +9,20 @@ const TOKEN_TTL = process.env.SESSION_TTL || "8h";
 const isProd = process.env.NODE_ENV === "production";
 const isServerless = Boolean(process.env.VERCEL);
 
-export const JWT_SECRET = resolveSecret();
+// הפענוח עצל וממוזער למטמון. חריגה בטעינת המודול מפילה על serverless את
+// הפונקציה כולה, ואז אין מי שידווח איזה משתנה חסר.
+let cachedSecret;
+function jwtSecret() {
+  return (cachedSecret ??= resolveSecret());
+}
 
 // בפריסה אמיתית המפתח חייב להגיע מהסביבה: על serverless אין דיסק משותף,
 // ומפתח שנוצר לכל instance בנפרד היה מנתק משתמשים באקראי.
 // בפיתוח מקומי שומרים מפתח בקובץ כדי שהפעלה מחדש לא תנתק את מי שמחובר.
 function resolveSecret() {
-  if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
+  // ערך ריק או רווחים בלבד שקולים למשתנה שלא הוגדר כלל.
+  const fromEnv = process.env.JWT_SECRET?.trim();
+  if (fromEnv) return fromEnv;
   if (isProd || isServerless) {
     throw new Error("JWT_SECRET חייב להיות מוגדר בפריסה (ראה .env.example)");
   }
@@ -42,7 +49,7 @@ export function verifyPassword(plain, hash) {
 export function issueSession(res, user) {
   const token = jwt.sign(
     { sub: user.id, role: user.role, pw: pwFingerprint(user.password_hash) },
-    JWT_SECRET,
+    jwtSecret(),
     { expiresIn: TOKEN_TTL }
   );
   res.cookie(COOKIE_NAME, token, {
@@ -69,7 +76,7 @@ async function currentUser(req) {
 
   let payload;
   try {
-    payload = jwt.verify(token, JWT_SECRET);
+    payload = jwt.verify(token, jwtSecret());
   } catch {
     return null;
   }
