@@ -69,3 +69,337 @@ button:disabled svg {
     animation: none;
   }
 }
+
+/* ---------------- הערות ותיקונים ---------------- */
+.note-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-inline-start: 3px solid var(--line);
+  border-radius: 10px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.note-row:hover {
+  background: var(--surface-alt);
+}
+
+.note-check {
+  margin-top: 1px;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  border: 1.5px solid var(--muted);
+  background: transparent;
+  color: #1a1206;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.note-check:hover {
+  border-color: #5fbf8a;
+}
+.note-check[data-done] {
+  background: #5fbf8a;
+  border-color: #5fbf8a;
+}
+
+.note-main {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+.note-title {
+  font-size: 14.5px;
+  font-weight: 600;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.note-body {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-width: 68ch;
+}
+.note-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.chip {
+  padding: 1px 8px;
+  border: 1px solid;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.note-thumb-btn {
+  justify-self: start;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: zoom-in;
+  border-radius: 8px;
+}
+.note-thumb {
+  display: block;
+  max-width: 220px;
+  max-height: 140px;
+  width: auto;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  object-fit: cover;
+}
+
+.note-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.note-actions button {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.note-actions button:hover {
+  background: var(--line-soft);
+  color: var(--ink);
+}
+.note-actions button:last-child:hover {
+  color: var(--danger);
+}
+
+/* טופס עריכה בתוך הרשימה */
+.note-editor {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  background: var(--surface-alt);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+}
+.note-editor-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  align-items: end;
+}
+.note-editor-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.seg button {
+  padding: 8px 12px;
+  background: var(--surface);
+  color: var(--muted);
+  border: none;
+  border-inline-start: 1px solid var(--line);
+  cursor: pointer;
+  font-size: 13px;
+}
+.seg button:first-child {
+  border-inline-start: none;
+}
+.seg button.seg-on {
+  background: color-mix(in srgb, var(--seg) 18%, transparent);
+  color: var(--seg);
+  font-weight: 700;
+}
+
+.note-image-picker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.note-thumb-wrap {
+  position: relative;
+}
+.note-thumb-wrap .note-thumb {
+  max-width: 120px;
+  max-height: 80px;
+}
+.thumb-remove {
+  position: absolute;
+  top: -8px;
+  inset-inline-end: -8px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  cursor: pointer;
+}
+
+/* שורת ההוספה */
+.note-add {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+}
+.note-add-title {
+  flex: 1 1 220px;
+}
+.note-add .note-image-picker .note-thumb {
+  max-width: 64px;
+  max-height: 44px;
+}
+
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(8, 9, 12, 0.88);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  cursor: zoom-out;
+  animation: fade 0.15s ease;
+}
+.lightbox img {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 10px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+.lightbox-close {
+  position: absolute;
+  top: 14px;
+  inset-inline-end: 14px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* ---------------- כרטיס פרויקט ---------------- */
+.pcard-head {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 14px 16px;
+}
+.pcard-info {
+  flex: 1;
+  min-width: 0;
+}
+.pcard-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+/* ---------------- מובייל ---------------- */
+@media (max-width: 640px) {
+  /* הכרטיס נשבר לשתי שורות: תמונה ופרטים, ומתחתם שורת פעולות ברוחב מלא. */
+  .pcard-head {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: start;
+    gap: 12px;
+    padding: 14px;
+  }
+  .pcard-controls {
+    grid-column: 1 / -1;
+    justify-content: space-between;
+    padding-top: 12px;
+    border-top: 1px solid var(--line-soft);
+  }
+
+  input,
+  select,
+  textarea {
+    font-size: 16px !important; /* מונע זום אוטומטי ב-iOS */
+  }
+
+  .note-row {
+    padding: 12px;
+    gap: 10px;
+  }
+  .note-thumb {
+    max-width: 100%;
+    max-height: 200px;
+  }
+  .note-actions {
+    flex-direction: column;
+  }
+  .note-actions button {
+    width: 36px;
+    height: 36px;
+  }
+
+  .note-add {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  .note-add > .note-add-title,
+  .note-add > .note-image-picker,
+  .note-add > button:last-child {
+    grid-column: 1 / -1;
+  }
+  .note-add > button:last-child {
+    padding: 12px;
+  }
+
+  .note-editor-row {
+    grid-template-columns: 1fr;
+  }
+  .seg {
+    display: flex;
+  }
+  .seg button {
+    flex: 1;
+    padding: 10px 6px;
+  }
+  .note-editor-actions button {
+    flex: 1;
+    justify-content: center;
+    padding: 12px;
+  }
+}

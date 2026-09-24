@@ -156,6 +156,8 @@ const SCHEMA_SQL = `
 
   ALTER TABLE project_notes ADD COLUMN IF NOT EXISTS position INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE project_notes ADD COLUMN IF NOT EXISTS group_id TEXT;
+  -- צילום מסך לתיקון. נשמר כ-data URI כמו תמונת הפרויקט ומוגש בנפרד.
+  ALTER TABLE project_notes ADD COLUMN IF NOT EXISTS image TEXT NOT NULL DEFAULT '';
 
   ALTER TABLE project_notes DROP CONSTRAINT IF EXISTS project_notes_group_id_fkey;
   ALTER TABLE project_notes ADD  CONSTRAINT project_notes_group_id_fkey

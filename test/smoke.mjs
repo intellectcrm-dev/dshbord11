@@ -426,6 +426,47 @@ try {
     dump(r)
   );
 
+  r = await admin.req("PATCH", `/projects/${p1}/notes/${inGroupId}`, {
+    title: "להגדיר מפתח API בפריסה",
+    body: "מתוקן",
+    severity: "warning",
+    groupId: null,
+  });
+  check(
+    "עריכת פריט: כותרת, תיאור, חומרה והוצאה מהרשימה",
+    r.status === 200 &&
+      r.data.title === "להגדיר מפתח API בפריסה" &&
+      r.data.body === "מתוקן" &&
+      r.data.severity === "warning" &&
+      r.data.group_id === null,
+    dump(r)
+  );
+
+  r = await admin.req("PATCH", `/projects/${p1}/notes/${inGroupId}`, { groupId });
+  check("החזרת פריט לרשימה -> 200", r.status === 200 && r.data.group_id === groupId, dump(r));
+
+  r = await admin.req("PATCH", `/projects/${p1}/notes/${inGroupId}`, { groupId: "לא-קיים" });
+  check("העברה לרשימה שאינה קיימת -> 400", r.status === 400, dump(r));
+
+  // PNG של פיקסל אחד.
+  const pixel =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+  r = await admin.req("PATCH", `/projects/${p1}/notes/${inGroupId}`, { image: pixel });
+  check("צירוף תמונה לתיקון -> 200", r.status === 200 && r.data.image_url.includes("/image"), dump(r));
+  const noteImageUrl = r.data.image_url;
+
+  r = await admin.req("GET", noteImageUrl.replace(/^\/api/, ""));
+  check("התמונה של התיקון מוגשת", r.status === 200, dump(r));
+
+  r = await admin.req("PATCH", `/projects/${p1}/notes/${inGroupId}`, { image: "data:text/html;base64,PGI+" });
+  check("תמונה שאינה תמונה -> 400", r.status === 400, dump(r));
+
+  r = await admin.req("PATCH", `/projects/${p1}/notes/${inGroupId}`, { image: "" });
+  check("הסרת תמונה מהתיקון", r.status === 200 && r.data.image_url === "", dump(r));
+
+  r = await member.req("PATCH", `/projects/${p1}/notes/${inGroupId}`, { title: "לא מורשה" });
+  check("הרשאת צפייה לא עורכת פריט -> 403", r.status === 403, dump(r));
+
   r = await member.req("POST", `/projects/${p1}/notes/groups`, { title: "לא מורשה" });
   check("הרשאת צפייה לא פותחת רשימה -> 403", r.status === 403, dump(r));
 

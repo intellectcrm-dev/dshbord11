@@ -236,10 +236,10 @@ export default function ProjectsView({ session, onError }) {
                   overflow: "hidden",
                 }}
               >
-                <div style={{ display: "flex", gap: "14px", alignItems: "center", padding: "14px 16px" }}>
+                <div className="pcard-head">
                   <Thumb project={p} color={st.color} />
 
-                  <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="pcard-info">
                     <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                       {editingId === p.id ? (
                         <input
@@ -340,7 +340,7 @@ export default function ProjectsView({ session, onError }) {
                     </div>
                   </div>
 
-                  <div style={{ display: "flex", alignItems: "center", gap: "10px", flexShrink: 0 }}>
+                  <div className="pcard-controls">
                     {!editable && <Eye size={14} color={C.muted} aria-label="צפייה בלבד" />}
                     {editable && !isAdmin && <Pencil size={14} color={C.muted} aria-label="ניתן לערוך" />}
 
