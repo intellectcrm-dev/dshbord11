@@ -7,6 +7,7 @@ import {
   Megaphone,
   RefreshCw,
   ListChecks,
+  Pencil,
   ScanSearch,
   Send,
   Trash2,
@@ -103,54 +104,205 @@ function Meter({ done, total }) {
   );
 }
 
-function NoteRow({ note, editable, busy, onToggle, onRemove }) {
+// תמונה מוצגת במסך מלא. לחיצה בכל מקום או Escape סוגרים.
+function Lightbox({ src, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div className="lightbox" onClick={onClose} role="dialog" aria-label="תמונה מוגדלת">
+      <img src={src} alt="" />
+      <button className="lightbox-close" aria-label="סגור">
+        <X size={20} />
+      </button>
+    </div>
+  );
+}
+
+// בחירת תמונה מהמכשיר, או הדבקה של צילום מסך (Ctrl+V) בתוך הטופס.
+// מחזיר data URI מוקטן, "" להסרה.
+function ImagePicker({ value, onChange, onError }) {
+  const fileRef = useRef(null);
+  const [loading, setLoading] = useState(false);
+
+  async function take(file) {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) return onError(new Error("אפשר לצרף קובץ תמונה בלבד."));
+    setLoading(true);
+    try {
+      onChange(await shrinkToDataUrl(file));
+    } catch {
+      onError(new Error("לא הצלחתי לקרוא את התמונה."));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="note-image-picker">
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        hidden
+        onChange={(e) => {
+          take(e.target.files?.[0]);
+          e.target.value = "";
+        }}
+      />
+      {value ? (
+        <div className="note-thumb-wrap">
+          <img src={value} alt="" className="note-thumb" />
+          <button type="button" className="thumb-remove" onClick={() => onChange("")} aria-label="הסר תמונה">
+            <X size={13} />
+          </button>
+        </div>
+      ) : null}
+      <button type="button" onClick={() => fileRef.current?.click()} disabled={loading} style={ghostButton}>
+        {loading ? <Loader2 size={14} /> : <ImagePlus size={14} />} {value ? "החלף תמונה" : "צרף תמונה"}
+      </button>
+    </div>
+  );
+}
+
+// מאזין להדבקת תמונה מהלוח בתוך אלמנט, כדי שצילום מסך יגיע בלחיצה אחת.
+function pastedImage(e) {
+  const item = [...(e.clipboardData?.items ?? [])].find((i) => i.type.startsWith("image/"));
+  return item?.getAsFile() ?? null;
+}
+
+function SeverityPicker({ value, onChange }) {
+  return (
+    <div className="seg" role="radiogroup" aria-label="חומרה">
+      {Object.entries(SEVERITY).map(([key, v]) => (
+        <button
+          key={key}
+          type="button"
+          role="radio"
+          aria-checked={value === key}
+          onClick={() => onChange(key)}
+          className={value === key ? "seg-on" : ""}
+          style={{ "--seg": v.color }}
+        >
+          {v.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function NoteEditor({ note, groups, busy, onSave, onCancel, onError }) {
+  const [title, setTitle] = useState(note.title);
+  const [body, setBody] = useState(note.body ?? "");
+  const [severity, setSeverity] = useState(note.severity);
+  const [groupId, setGroupId] = useState(note.group_id ?? "");
+  // undefined = לא נגעו בתמונה; מחרוזת = תמונה חדשה או "" להסרה.
+  const [image, setImage] = useState(undefined);
+  const titleRef = useRef(null);
+
+  useEffect(() => titleRef.current?.focus(), []);
+
+  const shownImage = image === undefined ? note.image_url : image;
+
+  function save() {
+    const patch = {};
+    if (title.trim() !== note.title) patch.title = title.trim();
+    if (body !== (note.body ?? "")) patch.body = body;
+    if (severity !== note.severity) patch.severity = severity;
+    if (groupId !== (note.group_id ?? "")) patch.groupId = groupId || null;
+    if (image !== undefined) patch.image = image;
+    if (!Object.keys(patch).length) return onCancel();
+    onSave(note, patch);
+  }
+
+  return (
+    <li
+      className="note-editor"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") onCancel();
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) save();
+      }}
+      onPaste={async (e) => {
+        const file = pastedImage(e);
+        if (!file) return;
+        e.preventDefault();
+        try {
+          setImage(await shrinkToDataUrl(file));
+        } catch {
+          onError(new Error("לא הצלחתי לקרוא את התמונה."));
+        }
+      }}
+    >
+      <Field label="מה צריך לתקן">
+        <input ref={titleRef} value={title} onChange={(e) => setTitle(e.target.value)} style={input} maxLength={300} />
+      </Field>
+      <Field label="פירוט">
+        <textarea
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          rows={3}
+          placeholder="איפה זה קורה, מה מצופה, איך משחזרים"
+          style={{ ...input, resize: "vertical", lineHeight: 1.55 }}
+          maxLength={4000}
+        />
+      </Field>
+      <div className="note-editor-row">
+        <Field label="חומרה">
+          <SeverityPicker value={severity} onChange={setSeverity} />
+        </Field>
+        <Field label="רשימה">
+          <select value={groupId} onChange={(e) => setGroupId(e.target.value)} style={input}>
+            <option value="">כללי</option>
+            {groups.map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.title}
+              </option>
+            ))}
+          </select>
+        </Field>
+      </div>
+      <Field label="תמונה (אפשר גם להדביק צילום מסך)">
+        <ImagePicker value={shownImage} onChange={setImage} onError={onError} />
+      </Field>
+      <div className="note-editor-actions">
+        <button onClick={save} disabled={!title.trim() || busy} style={primaryButton}>
+          {busy ? <Loader2 size={14} /> : <Check size={14} />} שמור
+        </button>
+        <button onClick={onCancel} style={{ ...ghostButton, color: C.inkSoft }}>
+          ביטול
+        </button>
+      </div>
+    </li>
+  );
+}
+
+function NoteRow({ note, editable, busy, onToggle, onRemove, onEdit, onZoom }) {
   const sev = SEVERITY[note.severity] ?? SEVERITY.info;
   return (
     <li
+      className="note-row"
       style={{
-        background: C.surface,
-        border: `1px solid ${C.line}`,
-        borderInlineStart: note.severity === "critical" && !note.done ? `3px solid ${sev.color}` : undefined,
-        borderRadius: C.radius,
-        padding: "10px 12px",
-        display: "flex",
-        alignItems: "flex-start",
-        gap: "10px",
-        opacity: note.done ? 0.55 : 1,
+        borderInlineStartColor: note.severity === "critical" && !note.done ? sev.color : undefined,
+        opacity: note.done ? 0.6 : 1,
       }}
     >
       {editable && (
         <button
+          className="note-check"
           onClick={() => onToggle(note)}
           disabled={busy === `note:${note.id}`}
           aria-label={note.done ? "החזר לפתוח" : "סמן כטופל"}
-          style={{
-            marginTop: "2px",
-            width: "17px",
-            height: "17px",
-            flexShrink: 0,
-            borderRadius: "5px",
-            border: `1px solid ${note.done ? "#5FBF8A" : C.muted}`,
-            background: note.done ? "#5FBF8A" : "transparent",
-            color: C.accentInk,
-            cursor: "pointer",
-            display: "grid",
-            placeItems: "center",
-            padding: 0,
-          }}
+          data-done={note.done || undefined}
         >
-          {note.done && <Check size={12} />}
+          {note.done && <Check size={13} />}
         </button>
       )}
 
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div
-          style={{
-            fontSize: "13.5px",
-            fontWeight: 600,
-            textDecoration: note.done ? "line-through" : "none",
-          }}
-        >
+      <div className="note-main">
+        <div className="note-title" style={{ textDecoration: note.done ? "line-through" : "none" }}>
           {note.url ? (
             <a href={note.url} target="_blank" rel="noopener noreferrer" style={{ color: C.ink, textDecoration: "none" }}>
               {note.title}
@@ -159,24 +311,29 @@ function NoteRow({ note, editable, busy, onToggle, onRemove }) {
             note.title
           )}
         </div>
-        {note.body && (
-          <p style={{ margin: "4px 0 0", fontSize: "12.5px", color: C.muted, lineHeight: 1.55, maxWidth: "62ch" }}>
-            {note.body}
-          </p>
+        {note.body && <p className="note-body">{note.body}</p>}
+        {note.image_url && (
+          <button className="note-thumb-btn" onClick={() => onZoom(note.image_url)} aria-label="הגדל תמונה">
+            <img src={note.image_url} alt="" className="note-thumb" loading="lazy" />
+          </button>
         )}
+        <div className="note-meta">
+          <span className="chip" style={{ color: sev.color, borderColor: sev.color }}>
+            {sev.label}
+          </span>
+          <span>{SOURCE[note.source]}</span>
+        </div>
       </div>
 
-      <span style={{ fontSize: "11px", color: sev.color, flexShrink: 0 }}>{sev.label}</span>
-      <span style={{ fontSize: "11px", color: C.muted, flexShrink: 0 }}>{SOURCE[note.source]}</span>
-
       {editable && (
-        <button
-          onClick={() => onRemove(note)}
-          aria-label="מחק הערה"
-          style={{ background: "none", border: "none", cursor: "pointer", color: C.muted, padding: 0, flexShrink: 0 }}
-        >
-          <Trash2 size={13} />
-        </button>
+        <div className="note-actions">
+          <button onClick={() => onEdit(note)} aria-label="ערוך" title="ערוך">
+            <Pencil size={15} />
+          </button>
+          <button onClick={() => onRemove(note)} aria-label="מחק" title="מחק">
+            <Trash2 size={15} />
+          </button>
+        </div>
       )}
     </li>
   );
@@ -184,7 +341,7 @@ function NoteRow({ note, editable, busy, onToggle, onRemove }) {
 
 // קבוצה אחת ברשימת המסירה. פריטים שלא שויכו לרשימה מוצגים באותו רכיב
 // בלי כותרת שלב, כדי שהכול ייראה כרשימה אחת ולא כשתי מערכות.
-function NoteGroup({ group, step, items, editable, busy, onToggle, onRemove, onRemoveGroup }) {
+function NoteGroup({ group, step, items, editable, busy, onRemoveGroup, rowProps, editingId, editorProps }) {
   const done = items.filter((n) => n.done).length;
 
   return (
@@ -223,16 +380,13 @@ function NoteGroup({ group, step, items, editable, busy, onToggle, onRemove, onR
       )}
 
       <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: "6px" }}>
-        {items.map((note) => (
-          <NoteRow
-            key={note.id}
-            note={note}
-            editable={editable}
-            busy={busy}
-            onToggle={onToggle}
-            onRemove={onRemove}
-          />
-        ))}
+        {items.map((note) =>
+          note.id === editingId ? (
+            <NoteEditor key={note.id} note={note} {...editorProps} busy={busy === `note:${note.id}`} />
+          ) : (
+            <NoteRow key={note.id} note={note} editable={editable} busy={busy} {...rowProps} />
+          )
+        )}
       </ul>
     </section>
   );
@@ -249,6 +403,9 @@ export default function ProjectDetails({ project, isAdmin, team, queueSave, patc
   const [noteTitle, setNoteTitle] = useState("");
   const [noteSeverity, setNoteSeverity] = useState("warning");
   const [noteGroupId, setNoteGroupId] = useState("");
+  const [noteImage, setNoteImage] = useState("");
+  const [editingId, setEditingId] = useState(null);
+  const [zoom, setZoom] = useState(null);
   const [busy, setBusy] = useState("");
   const fileInput = useRef(null);
 
@@ -302,9 +459,15 @@ export default function ProjectDetails({ project, isAdmin, team, queueSave, patc
     run("note", async () => {
       const title = noteTitle.trim();
       if (!title) return;
-      const created = await api.addNote(projectId, { title, severity: noteSeverity, groupId: noteGroupId });
+      const created = await api.addNote(projectId, {
+        title,
+        severity: noteSeverity,
+        groupId: noteGroupId,
+        image: noteImage,
+      });
       setNotes((prev) => [created, ...prev]);
       setNoteTitle("");
+      setNoteImage("");
       onReplace({ ...project, open_notes: (project.open_notes ?? 0) + 1 });
     });
 
@@ -315,8 +478,16 @@ export default function ProjectDetails({ project, isAdmin, team, queueSave, patc
       onReplace({ ...project, open_notes: (project.open_notes ?? 0) + (updated.done ? -1 : 1) });
     });
 
+  const saveNote = (note, patch) =>
+    run(`note:${note.id}`, async () => {
+      const updated = await api.updateNote(projectId, note.id, patch);
+      setNotes((prev) => prev.map((n) => (n.id === note.id ? updated : n)));
+      setEditingId(null);
+    });
+
   const removeNote = (note) =>
     run(`note:${note.id}`, async () => {
+      if (!window.confirm(`למחוק את «${note.title}»?`)) return;
       await api.deleteNote(projectId, note.id);
       setNotes((prev) => prev.filter((n) => n.id !== note.id));
       if (!note.done) onReplace({ ...project, open_notes: Math.max(0, (project.open_notes ?? 1) - 1) });
@@ -589,19 +760,28 @@ export default function ProjectDetails({ project, isAdmin, team, queueSave, patc
         {notes.length > 0 && <Meter done={notes.length - openNotes.length} total={notes.length} />}
 
         {editable && (
-          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+          <div
+            className="note-add"
+            onPaste={async (e) => {
+              const file = pastedImage(e);
+              if (!file) return;
+              e.preventDefault();
+              run("note-image", async () => setNoteImage(await shrinkToDataUrl(file)));
+            }}
+          >
             <input
               value={noteTitle}
               onChange={(e) => setNoteTitle(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && addNote()}
               placeholder="מה צריך לתקן"
-              style={{ ...input, flex: 1, minWidth: "180px" }}
+              className="note-add-title"
+              style={input}
             />
             <select
               value={noteGroupId}
               onChange={(e) => setNoteGroupId(e.target.value)}
               aria-label="שיוך לרשימה"
-              style={{ ...input, minWidth: "130px" }}
+              style={input}
             >
               <option value="">כללי</option>
               {groups.map((g) => (
@@ -614,7 +794,7 @@ export default function ProjectDetails({ project, isAdmin, team, queueSave, patc
               value={noteSeverity}
               onChange={(e) => setNoteSeverity(e.target.value)}
               aria-label="חומרה"
-              style={{ ...input, minWidth: "110px" }}
+              style={input}
             >
               {Object.entries(SEVERITY).map(([key, v]) => (
                 <option key={key} value={key}>
@@ -622,8 +802,13 @@ export default function ProjectDetails({ project, isAdmin, team, queueSave, patc
                 </option>
               ))}
             </select>
-            <button onClick={addNote} disabled={!noteTitle.trim() || busy === "note"} style={ghostButton}>
-              הוסף
+            <ImagePicker value={noteImage} onChange={setNoteImage} onError={onError} />
+            <button
+              onClick={addNote}
+              disabled={!noteTitle.trim() || busy === "note"}
+              style={{ ...primaryButton, justifyContent: "center" }}
+            >
+              {busy === "note" ? <Loader2 size={14} /> : null} הוסף
             </button>
           </div>
         )}
@@ -644,13 +829,15 @@ export default function ProjectDetails({ project, isAdmin, team, queueSave, patc
                 items={items}
                 editable={editable}
                 busy={busy}
-                onToggle={toggleNote}
-                onRemove={removeNote}
                 onRemoveGroup={removeGroup}
+                editingId={editingId}
+                rowProps={{ onToggle: toggleNote, onRemove: removeNote, onEdit: (n) => setEditingId(n.id), onZoom: setZoom }}
+                editorProps={{ groups, onSave: saveNote, onCancel: () => setEditingId(null), onError }}
               />
             ))}
           </div>
         )}
+        {zoom && <Lightbox src={zoom} onClose={() => setZoom(null)} />}
       </Section>
 
       {/* ---------------- העברה ---------------- */}
