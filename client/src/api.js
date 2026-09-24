@@ -1,18 +1,51 @@
+// תשובה שלא הגיעה מהשרת שלנו (דף שגיאה של Vercel, גוף ריק, timeout) לא
+// נושאת שדה error. במקום «שגיאה בלתי צפויה» אילמת מציגים את הסטטוס ומה
+// שאפשר לחלץ, כדי שאפשר יהיה לאבחן את הפריסה מהמסך עצמו.
+function describeFailure(status, data, text) {
+  if (typeof data?.error === "string") return data.error;
+  // פורמט השגיאה של Vercel: { error: { code, message } }
+  if (data?.error?.message) return `${data.error.message} (${data.error.code ?? status})`;
+
+  const hint = {
+    404: "נתיב ה-API לא נמצא בפריסה — ייתכן שפונקציית api/index.js לא נפרסה",
+    405: "הבקשה לא הגיעה לשרת ה-API — ייתכן שפונקציית api/index.js לא נפרסה",
+    500: "שגיאת שרת",
+    502: "פונקציית השרת קרסה",
+    503: "השרת לא זמין",
+    504: "השרת לא הגיב בזמן — ייתכן שבסיס הנתונים לא זמין",
+  }[status];
+  const snippet = text && !data ? ` — ${text.slice(0, 120).trim()}` : "";
+  return `${hint || "שגיאה בלתי צפויה"} (HTTP ${status})${snippet}. בדוק את /api/health`;
+}
+
 async function request(method, path, body) {
-  const res = await fetch(`/api${path}`, {
-    method,
-    credentials: "same-origin",
-    headers: body ? { "Content-Type": "application/json" } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let res;
+  try {
+    res = await fetch(`/api${path}`, {
+      method,
+      credentials: "same-origin",
+      headers: body ? { "Content-Type": "application/json" } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    throw new Error("אין חיבור לשרת. בדוק את החיבור לאינטרנט ונסה שוב.");
+  }
 
   const text = await res.text();
-  const data = text ? JSON.parse(text) : null;
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    /* גוף שאינו JSON — מטופל למטה */
+  }
 
   if (!res.ok) {
-    const err = new Error(data?.error || "שגיאה בלתי צפויה");
+    const err = new Error(describeFailure(res.status, data, text));
     err.status = res.status;
     throw err;
+  }
+  if (text && data === null) {
+    throw new Error("השרת החזיר תשובה שאינה JSON. בדוק את /api/health");
   }
   return data;
 }
