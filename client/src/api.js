@@ -3,6 +3,10 @@
 // שאפשר לחלץ, כדי שאפשר יהיה לאבחן את הפריסה מהמסך עצמו.
 function describeFailure(status, data, text) {
   if (typeof data?.error === "string") return data.error;
+  // סינון של ספק האינטרנט (נטפרי) עוצר את הבקשה לפני שהיא מגיעה לשרת.
+  if (data?.blockByNetFree) {
+    return "הבקשה נחסמה על ידי סינון נטפרי ולא הגיעה לשרת. יש לבקש מנטפרי לפתוח את כתובת האתר (כולל /api).";
+  }
   // פורמט השגיאה של Vercel: { error: { code, message } }
   if (data?.error?.message) return `${data.error.message} (${data.error.code ?? status})`;
 
