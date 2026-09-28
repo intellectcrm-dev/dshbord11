@@ -304,6 +304,19 @@ try {
   r = await admin.req("POST", "/users", { name: "יוסי", password: "devpass123", role: "wizard" });
   check("תפקיד לא חוקי -> 400", r.status === 400, dump(r));
 
+  r = await admin.req("PATCH", `/users/${marketerId}`, { name: "רותי כהן", role: "developer" });
+  check(
+    "עריכת איש צוות: שם ותפקיד -> 200",
+    r.status === 200 && r.data.name === "רותי כהן" && r.data.role === "developer",
+    dump(r)
+  );
+  r = await admin.req("PATCH", `/users/${marketerId}`, { role: "admin" });
+  check("עריכה לתפקיד מנהל -> 400", r.status === 400, dump(r));
+  r = await admin.req("PATCH", `/users/${marketerId}`, { password: "123" });
+  check("סיסמה קצרה בעריכה -> 400", r.status === 400, dump(r));
+  r = await admin.req("PATCH", `/users/${marketerId}`, { role: "marketing", password: "market123" });
+  check("החזרת תפקיד ואיפוס סיסמה -> 200", r.status === 200 && r.data.role === "marketing", dump(r));
+
   const marketer = jar();
   await marketer.req("POST", "/auth/member-login", { userId: marketerId, password: "market123" });
 
@@ -469,6 +482,25 @@ try {
 
   r = await member.req("POST", `/projects/${p1}/notes/groups`, { title: "לא מורשה" });
   check("הרשאת צפייה לא פותחת רשימה -> 403", r.status === 403, dump(r));
+
+  r = await admin.req("PATCH", `/projects/${p1}/notes/groups/${groupId}`, {
+    title: "תשתית — מעודכן",
+    note: "הסבר חדש",
+  });
+  check(
+    "עריכת רשימה: שם והסבר -> 200",
+    r.status === 200 && r.data.title === "תשתית — מעודכן" && r.data.note === "הסבר חדש",
+    dump(r)
+  );
+
+  r = await admin.req("PATCH", `/projects/${p1}/notes/groups/${groupId}`, { title: "  " });
+  check("עריכת רשימה בלי כותרת -> 400", r.status === 400, dump(r));
+
+  r = await admin.req("PATCH", `/projects/${p1}/notes/groups/לא-קיים`, { title: "x" });
+  check("עריכת רשימה שאינה קיימת -> 404", r.status === 404, dump(r));
+
+  r = await member.req("PATCH", `/projects/${p1}/notes/groups/${groupId}`, { title: "לא מורשה" });
+  check("הרשאת צפייה לא עורכת רשימה -> 403", r.status === 403, dump(r));
 
   r = await admin.req("DELETE", `/projects/${p1}/notes/groups/${groupId}`);
   check("מחיקת רשימה -> 200", r.status === 200, dump(r));

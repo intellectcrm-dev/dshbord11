@@ -71,6 +71,43 @@ router.post("/groups", async (req, res) => {
   res.status(201).json(group);
 });
 
+// עריכת שם הרשימה וההסבר שלה אחרי שנוצרה.
+router.patch("/groups/:groupId", async (req, res) => {
+  if (!canEdit(req.projectLevel)) return res.status(403).json({ error: "אין הרשאת עריכה" });
+
+  const fields = [];
+  const values = [];
+  const add = (sql, value) => {
+    values.push(value);
+    fields.push(`${sql} = $${values.length}`);
+  };
+
+  if ("title" in req.body) {
+    const title = typeof req.body.title === "string" ? req.body.title.trim() : "";
+    if (!title) return res.status(400).json({ error: "נדרשת כותרת לרשימה" });
+    if (title.length > 200) return res.status(400).json({ error: "כותרת הרשימה ארוכה מדי" });
+    add("title", title);
+  }
+  if ("note" in req.body) {
+    if (typeof req.body.note !== "string" || req.body.note.length > 1000) {
+      return res.status(400).json({ error: "הסבר הרשימה ארוך מדי" });
+    }
+    add("note", req.body.note);
+  }
+  if (!fields.length) return res.status(400).json({ error: "אין שדות לעדכון" });
+
+  values.push(req.params.groupId, req.params.id);
+  const group = await one(
+    `UPDATE project_note_groups SET ${fields.join(", ")}
+      WHERE id = $${values.length - 1} AND project_id = $${values.length}
+      RETURNING id, title, note, position`,
+    values
+  );
+  if (!group) return res.status(404).json({ error: "רשימה לא נמצאה" });
+
+  res.json(group);
+});
+
 // מחיקת רשימה שלמה. הפריטים תלויים בקבוצה ונמחקים איתה.
 router.delete("/groups/:groupId", async (req, res) => {
   if (!canEdit(req.projectLevel)) return res.status(403).json({ error: "אין הרשאת עריכה" });

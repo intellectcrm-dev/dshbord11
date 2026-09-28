@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { ChevronLeft, Plus, Trash2 } from "lucide-react";
+import { Check, ChevronLeft, Pencil, Plus, Trash2 } from "lucide-react";
 import { api } from "../api.js";
-import { C, input, primaryButton } from "../theme.js";
+import { C, ghostButton, input, primaryButton } from "../theme.js";
 
 const LEVELS = [
   { key: "none", label: "אין גישה" },
@@ -22,6 +22,7 @@ export default function TeamView({ onError }) {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [openUserId, setOpenUserId] = useState(null);
+  const [editingUserId, setEditingUserId] = useState(null);
 
   const [newName, setNewName] = useState("");
   const [newPass, setNewPass] = useState("");
@@ -53,6 +54,16 @@ export default function TeamView({ onError }) {
       setNewName("");
       setNewPass("");
       setNewRole("member");
+    } catch (err) {
+      onError(err);
+    }
+  }
+
+  async function saveUser(user, patch) {
+    try {
+      const updated = await api.updateUser(user.id, patch);
+      setUsers((prev) => prev.map((u) => (u.id === user.id ? { ...u, ...updated } : u)));
+      setEditingUserId(null);
     } catch (err) {
       onError(err);
     }
@@ -220,6 +231,17 @@ export default function TeamView({ onError }) {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
+                        setEditingUserId(editingUserId === u.id ? null : u.id);
+                      }}
+                      aria-label="ערוך איש צוות"
+                      title="ערוך"
+                      style={{ background: "none", border: "none", cursor: "pointer", color: C.muted }}
+                    >
+                      <Pencil size={15} />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
                         removeUser(u);
                       }}
                       aria-label="מחק איש צוות"
@@ -233,6 +255,10 @@ export default function TeamView({ onError }) {
                     />
                   </div>
                 </div>
+
+                {editingUserId === u.id && (
+                  <UserEditor user={u} onSave={saveUser} onCancel={() => setEditingUserId(null)} />
+                )}
 
                 {open && (
                   <div style={{ padding: "0 16px 16px", background: "#fbfaf7" }}>
@@ -287,5 +313,71 @@ export default function TeamView({ onError }) {
         </div>
       )}
     </div>
+  );
+}
+
+// עריכת שם ותפקיד, ואיפוס סיסמה. שדה סיסמה ריק משאיר את הסיסמה הקיימת.
+function UserEditor({ user, onSave, onCancel }) {
+  const [name, setName] = useState(user.name);
+  const [role, setRole] = useState(user.role);
+  const [password, setPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const passwordOk = password === "" || password.length >= 6;
+
+  async function save(e) {
+    e.preventDefault();
+    const patch = {};
+    if (name.trim() !== user.name) patch.name = name.trim();
+    if (role !== user.role) patch.role = role;
+    if (password) patch.password = password;
+    if (!Object.keys(patch).length) return onCancel();
+    setSaving(true);
+    await onSave(user, patch);
+    setSaving(false);
+  }
+
+  return (
+    <form
+      onSubmit={save}
+      onKeyDown={(e) => e.key === "Escape" && onCancel()}
+      style={{ padding: "0 16px 16px", display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}
+    >
+      <input
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="שם"
+        aria-label="שם"
+        autoFocus
+        style={{ ...input, flex: 1, minWidth: "120px" }}
+      />
+      <select
+        value={role}
+        onChange={(e) => setRole(e.target.value)}
+        aria-label="תפקיד"
+        style={{ ...input, minWidth: "120px" }}
+      >
+        {Object.entries(ROLES).map(([key, label]) => (
+          <option key={key} value={key}>
+            {label}
+          </option>
+        ))}
+      </select>
+      <input
+        type="password"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        placeholder="סיסמה חדשה (ריק = ללא שינוי)"
+        aria-label="סיסמה חדשה"
+        autoComplete="new-password"
+        style={{ ...input, flex: 1, minWidth: "160px" }}
+      />
+      <button type="submit" disabled={!name.trim() || !passwordOk || saving} style={primaryButton}>
+        <Check size={15} /> שמור
+      </button>
+      <button type="button" onClick={onCancel} style={{ ...ghostButton, color: C.inkSoft }}>
+        ביטול
+      </button>
+    </form>
   );
 }

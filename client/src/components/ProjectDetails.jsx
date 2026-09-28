@@ -341,39 +341,123 @@ function NoteRow({ note, editable, busy, onToggle, onRemove, onEdit, onZoom }) {
 
 // קבוצה אחת ברשימת המסירה. פריטים שלא שויכו לרשימה מוצגים באותו רכיב
 // בלי כותרת שלב, כדי שהכול ייראה כרשימה אחת ולא כשתי מערכות.
-function NoteGroup({ group, step, items, editable, busy, onRemoveGroup, rowProps, editingId, editorProps }) {
+// עריכת שם הרשימה וההסבר שלה, במקום הכותרת.
+function GroupEditor({ group, busy, onSave, onCancel }) {
+  const [title, setTitle] = useState(group.title);
+  const [note, setNote] = useState(group.note ?? "");
+  const titleRef = useRef(null);
+
+  useEffect(() => titleRef.current?.focus(), []);
+
+  function save() {
+    const patch = {};
+    if (title.trim() !== group.title) patch.title = title.trim();
+    if (note !== (group.note ?? "")) patch.note = note;
+    if (!Object.keys(patch).length) return onCancel();
+    onSave(group, patch);
+  }
+
+  return (
+    <div
+      className="note-editor"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") onCancel();
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) save();
+      }}
+    >
+      <Field label="שם הרשימה">
+        <input
+          ref={titleRef}
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && save()}
+          style={input}
+          maxLength={200}
+        />
+      </Field>
+      <Field label="הסבר">
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          rows={2}
+          placeholder="למה הרשימה הזאת קיימת, מה סדר העבודה"
+          style={{ ...input, resize: "vertical", lineHeight: 1.55 }}
+          maxLength={1000}
+        />
+      </Field>
+      <div className="note-editor-actions">
+        <button onClick={save} disabled={!title.trim() || busy} style={primaryButton}>
+          {busy ? <Loader2 size={14} /> : <Check size={14} />} שמור
+        </button>
+        <button onClick={onCancel} style={{ ...ghostButton, color: C.inkSoft }}>
+          ביטול
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const groupIconButton = { background: "none", border: "none", cursor: "pointer", color: C.muted, padding: 0 };
+
+function NoteGroup({
+  group,
+  step,
+  items,
+  editable,
+  busy,
+  onRemoveGroup,
+  onSaveGroup,
+  editingGroup,
+  onEditGroup,
+  rowProps,
+  editingId,
+  editorProps,
+}) {
   const done = items.filter((n) => n.done).length;
 
   return (
     <section style={{ display: "grid", gap: "9px" }}>
-      <div style={{ display: "flex", alignItems: "baseline", gap: "9px", flexWrap: "wrap" }}>
-        {step && (
-          <span style={{ fontSize: "11.5px", color: C.muted, fontVariantNumeric: "tabular-nums" }}>{step}</span>
-        )}
-        <h4 style={{ margin: 0, fontSize: "14px", fontWeight: 700 }}>{group ? group.title : "כללי"}</h4>
-        <span style={{ fontSize: "11.5px", color: done === items.length ? "#5FBF8A" : C.muted }}>
-          {done}/{items.length}
-        </span>
-        {group && editable && (
-          <button
-            onClick={() => onRemoveGroup(group)}
-            disabled={busy === `group:${group.id}`}
-            aria-label="מחק את הרשימה"
-            style={{
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              color: C.muted,
-              padding: 0,
-              marginInlineStart: "auto",
-            }}
-          >
-            <Trash2 size={13} />
-          </button>
-        )}
-      </div>
+      {group && editingGroup ? (
+        <GroupEditor
+          group={group}
+          busy={busy === `group:${group.id}`}
+          onSave={onSaveGroup}
+          onCancel={() => onEditGroup(null)}
+        />
+      ) : (
+        <div style={{ display: "flex", alignItems: "baseline", gap: "9px", flexWrap: "wrap" }}>
+          {step && (
+            <span style={{ fontSize: "11.5px", color: C.muted, fontVariantNumeric: "tabular-nums" }}>{step}</span>
+          )}
+          <h4 style={{ margin: 0, fontSize: "14px", fontWeight: 700 }}>{group ? group.title : "כללי"}</h4>
+          <span style={{ fontSize: "11.5px", color: done === items.length ? "#5FBF8A" : C.muted }}>
+            {done}/{items.length}
+          </span>
+          {group && editable && (
+            <div style={{ display: "flex", gap: "10px", marginInlineStart: "auto" }}>
+              <button
+                onClick={() => onEditGroup(group.id)}
+                aria-label="ערוך את הרשימה"
+                title="ערוך"
+                style={groupIconButton}
+              >
+                <Pencil size={13} />
+              </button>
+              <button
+                onClick={() => onRemoveGroup(group)}
+                disabled={busy === `group:${group.id}`}
+                aria-label="מחק את הרשימה"
+                title="מחק"
+                style={groupIconButton}
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
-      {group?.note && (
+      {group?.note && !editingGroup && (
         <p style={{ margin: 0, fontSize: "12.5px", color: C.muted, lineHeight: 1.55, maxWidth: "62ch" }}>
           {group.note}
         </p>
@@ -405,6 +489,7 @@ export default function ProjectDetails({ project, isAdmin, team, queueSave, patc
   const [noteGroupId, setNoteGroupId] = useState("");
   const [noteImage, setNoteImage] = useState("");
   const [editingId, setEditingId] = useState(null);
+  const [editingGroupId, setEditingGroupId] = useState(null);
   const [zoom, setZoom] = useState(null);
   const [busy, setBusy] = useState("");
   const fileInput = useRef(null);
@@ -521,6 +606,13 @@ export default function ProjectDetails({ project, isAdmin, team, queueSave, patc
       const group = await api.addNoteGroup(projectId, { title });
       setGroups((prev) => [...prev, group]);
       setNoteGroupId(group.id);
+    });
+
+  const saveGroup = (group, patch) =>
+    run(`group:${group.id}`, async () => {
+      const updated = await api.updateNoteGroup(projectId, group.id, patch);
+      setGroups((prev) => prev.map((g) => (g.id === group.id ? updated : g)));
+      setEditingGroupId(null);
     });
 
   const removeGroup = (group) =>
@@ -830,6 +922,9 @@ export default function ProjectDetails({ project, isAdmin, team, queueSave, patc
                 editable={editable}
                 busy={busy}
                 onRemoveGroup={removeGroup}
+                onSaveGroup={saveGroup}
+                editingGroup={Boolean(group) && group.id === editingGroupId}
+                onEditGroup={setEditingGroupId}
                 editingId={editingId}
                 rowProps={{ onToggle: toggleNote, onRemove: removeNote, onEdit: (n) => setEditingId(n.id), onZoom: setZoom }}
                 editorProps={{ groups, onSave: saveNote, onCancel: () => setEditingId(null), onError }}

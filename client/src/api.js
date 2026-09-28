@@ -68,6 +68,7 @@ export const api = {
 
   listUsers: () => request("GET", "/users"),
   createUser: (name, password, role) => request("POST", "/users", { name, password, role }),
+  updateUser: (id, patch) => request("PATCH", `/users/${id}`, patch),
   deleteUser: (id) => request("DELETE", `/users/${id}`),
 
   setPermission: (userId, projectId, level) =>
@@ -81,6 +82,7 @@ export const api = {
   updateNote: (id, noteId, patch) => request("PATCH", `/projects/${id}/notes/${noteId}`, patch),
   deleteNote: (id, noteId) => request("DELETE", `/projects/${id}/notes/${noteId}`),
   addNoteGroup: (id, group) => request("POST", `/projects/${id}/notes/groups`, group),
+  updateNoteGroup: (id, groupId, patch) => request("PATCH", `/projects/${id}/notes/groups/${groupId}`, patch),
   deleteNoteGroup: (id, groupId) => request("DELETE", `/projects/${id}/notes/groups/${groupId}`),
 
   repoStatus: (id) => request("GET", `/projects/${id}/github`),
