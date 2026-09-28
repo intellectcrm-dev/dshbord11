@@ -79,9 +79,24 @@ if (!isServerless && existsSync(clientDist)) {
   console.warn("⚠ client/dist לא נמצא — הרץ `npm run build` לפני הפעלה ב-production");
 }
 
+// תקלות תצורה וחיבור לבסיס הנתונים מתוארות במפורש, כדי שמסך הכניסה יסביר
+// מה חסר בפריסה במקום «שגיאת שרת» אילמת. שגיאות אחרות נשארות כלליות.
+const DB_FAILURES = {
+  ECONNREFUSED: "בסיס הנתונים דחה את החיבור",
+  ENOTFOUND: "כתובת בסיס הנתונים ב-DATABASE_URL לא נמצאה",
+  ETIMEDOUT: "החיבור לבסיס הנתונים לא הגיב בזמן",
+  "28P01": "שם המשתמש או הסיסמה ב-DATABASE_URL שגויים",
+  "3D000": "בסיס הנתונים שב-DATABASE_URL לא קיים",
+};
+
 app.use((err, req, res, next) => {
   console.error(err);
-  res.status(500).json({ error: "שגיאת שרת" });
+  if (err.expose) return res.status(503).json({ error: err.message });
+
+  const db = DB_FAILURES[err.code] ?? (/timeout|terminated/i.test(err.message) ? DB_FAILURES.ETIMEDOUT : null);
+  if (db) return res.status(503).json({ error: `${db}. בדוק את /api/health` });
+
+  res.status(500).json({ error: "שגיאת שרת. בדוק את /api/health" });
 });
 
 if (!isServerless) {

@@ -18,9 +18,11 @@ function createPool() {
   // ערך שהודבק בממשק ניהול עלול לגרור רווחים בקצוות.
   const connectionString = process.env.DATABASE_URL?.trim();
   if (!connectionString) {
-    throw new Error(
+    const err = new Error(
       "DATABASE_URL חסר. העתק את .env.example ל-.env ומלא את מחרוזת החיבור ל-Postgres (ראה README)."
     );
+    err.expose = true;
+    throw err;
   }
 
   // pool קטן בכוונה: על Vercel כל instance מחזיק pool משלו, ומול ספק מנוהל

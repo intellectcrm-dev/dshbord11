@@ -24,7 +24,9 @@ function resolveSecret() {
   const fromEnv = process.env.JWT_SECRET?.trim();
   if (fromEnv) return fromEnv;
   if (isProd || isServerless) {
-    throw new Error("JWT_SECRET חייב להיות מוגדר בפריסה (ראה .env.example)");
+    const err = new Error("JWT_SECRET חייב להיות מוגדר בפריסה (ראה .env.example)");
+    err.expose = true;
+    throw err;
   }
   const file = "data/.jwt-secret";
   mkdirSync("data", { recursive: true });
